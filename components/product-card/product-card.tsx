@@ -1,3 +1,4 @@
+import { Image } from "expo-image";
 import { ThemedText } from "@/components/themed-text";
 import * as Haptics from "expo-haptics";
 import {
@@ -14,7 +15,6 @@ import { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
-  Image,
   Linking,
   NativeScrollEvent,
   NativeSyntheticEvent,
@@ -28,13 +28,10 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
+import type { QueueItemDto } from "@/lib/api/client";
 import ProductCardChip from "./components/product-card-chip";
-const CAROUSEL_IMAGES = [
-  { uri: "https://m.media-amazon.com/images/I/81PzR0zY5bL.jpg" },
-  { uri: "https://m.media-amazon.com/images/I/81MtIEE5tsL._AC_SL1500_.jpg" },
-  { uri: "https://m.media-amazon.com/images/I/81EIAezFmIL._AC_SL1500_.jpg" },
-  { uri: "https://m.media-amazon.com/images/I/71Vs7urvNhL._AC_SL1500_.jpg" },
-];
+
+type InteractionType = "like" | "pass" | "save";
 
 function CarouselDot({
   index,
@@ -58,12 +55,43 @@ function CarouselDot({
   );
 }
 
-const ProductCard = ({ onSparklesPress }: { onSparklesPress?: () => void }) => {
+type ProductCardProps = {
+  item: QueueItemDto | null;
+  queueRemaining?: number | null;
+  onSparklesPress?: () => void;
+  onInteraction?: (type: InteractionType) => void;
+  interactionInFlight?: boolean;
+  activeInteractionType?: InteractionType | null;
+  appliedInteractionType?: InteractionType | null;
+};
+
+const ProductCard = ({
+  item,
+  queueRemaining,
+  onSparklesPress,
+  onInteraction,
+  interactionInFlight = false,
+  activeInteractionType = null,
+  appliedInteractionType = null,
+}: ProductCardProps) => {
   const [containerWidth, setContainerWidth] = useState(0);
   const [isOpening, setIsOpening] = useState(false);
   const activeIndex = useSharedValue(0);
   const [isCarouselLongPress, setIsCarouselLongPress] = useState(false);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const carouselImages =
+    item?.imageUrl && item.imageUrl.length > 0
+      ? [{ uri: item.imageUrl }]
+      : [{ uri: "https://placehold.co/600x600?text=No+Image" }];
+  const priceLabel =
+    item?.priceCents != null && item.currency
+      ? new Intl.NumberFormat("en-US", {
+          style: "currency",
+          currency: item.currency,
+        }).format(item.priceCents / 100)
+      : "Price unavailable";
+  const buyUrl = item?.buyUrl;
+  const interactionTypeToShow = activeInteractionType ?? appliedInteractionType;
 
   const onScroll = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -75,19 +103,22 @@ const ProductCard = ({ onSparklesPress }: { onSparklesPress?: () => void }) => {
   );
 
   const renderCarouselItem = useCallback(
-    ({ item }: { item: (typeof CAROUSEL_IMAGES)[number] }) => (
+    ({ item: imageItem }: { item: (typeof carouselImages)[number] }) => (
       <View
         style={{ width: containerWidth }}
         className="bg-white flex justify-center items-center"
       >
         <Image
-          source={item}
+          source={imageItem.uri}
           style={{ width: containerWidth, height: containerWidth }}
-          resizeMode="contain"
+          contentFit="contain"
+          contentPosition="center"
+          cachePolicy="memory-disk"
+          transition={120}
         />
       </View>
     ),
-    [containerWidth],
+    [containerWidth, carouselImages],
   );
 
   return (
@@ -120,7 +151,7 @@ const ProductCard = ({ onSparklesPress }: { onSparklesPress?: () => void }) => {
       >
         {containerWidth > 0 && (
           <FlatList
-            data={CAROUSEL_IMAGES}
+            data={carouselImages}
             renderItem={renderCarouselItem}
             keyExtractor={(_, i) => i.toString()}
             horizontal
@@ -151,7 +182,7 @@ const ProductCard = ({ onSparklesPress }: { onSparklesPress?: () => void }) => {
               className="flex-row justify-center items-center gap-1.5"
               pointerEvents="none"
             >
-              {CAROUSEL_IMAGES.map((_, i) => (
+              {carouselImages.map((_, i) => (
                 <CarouselDot key={i} index={i} activeIndex={activeIndex} />
               ))}
             </View>
@@ -170,13 +201,39 @@ const ProductCard = ({ onSparklesPress }: { onSparklesPress?: () => void }) => {
           <ThemedText fontWeight="thin">{"(2k+)"}</ThemedText>
         </View>
         <View className="flex flex-row gap-4 items-center">
-          <Bookmark size={24} color="black" strokeWidth={1.25} />
-          <ThumbsDown size={24} color="black" strokeWidth={1.25} />
+          <Pressable
+            disabled={interactionInFlight || !item}
+            onPress={() => onInteraction?.("save")}
+          >
+            <Bookmark
+              size={24}
+              color={interactionTypeToShow === "save" ? "#1f7a5c" : "black"}
+              fill={interactionTypeToShow === "save" ? "#1f7a5c" : "transparent"}
+              strokeWidth={1.25}
+            />
+          </Pressable>
+          <Pressable
+            disabled={interactionInFlight || !item}
+            onPress={() => onInteraction?.("pass")}
+          >
+            <ThumbsDown
+              size={24}
+              color={interactionTypeToShow === "pass" ? "#b42318" : "black"}
+              fill={interactionTypeToShow === "pass" ? "#b42318" : "transparent"}
+              strokeWidth={1.25}
+            />
+          </Pressable>
+          <Pressable
+            disabled={interactionInFlight || !item}
+            onPress={() => onInteraction?.("like")}
+          >
+            <Star size={24} color="black" strokeWidth={1.25} />
+          </Pressable>
         </View>
       </View>
       <View className="w-full px-4 flex-row flex justify-between items-start">
         <Text className="text-2xl leading-20v font-noto-serif-bold text-black">
-          Lightweight Hydration Backpack, Running Backpack...
+          {item?.title ?? "Loading recommendation..."}
         </Text>
       </View>
       <View className="w-full px-4 py-6 flex-row flex justify-between items-start">
@@ -191,13 +248,19 @@ const ProductCard = ({ onSparklesPress }: { onSparklesPress?: () => void }) => {
             <ThemedText fontWeight="light">In-range</ThemedText>
           </View>
           <Text className="text-zinc-600">|</Text>
-          <ThemedText>$129.99</ThemedText>
+          <ThemedText>{priceLabel}</ThemedText>
         </View>
+        <ThemedText fontWeight="light">
+          {typeof queueRemaining === "number"
+            ? `${queueRemaining} left`
+            : ""}
+        </ThemedText>
       </View>
       <View className="w-full flex-1 flex flex-row justify-between items-end pb-4 px-4">
         <View className="flex flex-row gap-3">
-          <ProductCardChip label="Sports & Outdoors" />
-          <ProductCardChip label="Outdoor Recreation" />
+          {(item?.tags.length ? item.tags : ["No tags"]).slice(0, 2).map((tag) => (
+            <ProductCardChip key={tag} label={tag} />
+          ))}
         </View>
         <Share size={24} color="black" strokeWidth={1.25} />
       </View>
@@ -208,11 +271,13 @@ const ProductCard = ({ onSparklesPress }: { onSparklesPress?: () => void }) => {
             <Pressable
               onPress={() => {
                 setIsOpening(true);
-                Linking.openURL(
-                  "https://www.amazon.com/dp/B09TR9LPKN?_encoding=UTF8&psc=1",
-                ).finally(() => setIsOpening(false));
+                if (!buyUrl) {
+                  setIsOpening(false);
+                  return;
+                }
+                Linking.openURL(buyUrl).finally(() => setIsOpening(false));
               }}
-              disabled={isOpening}
+              disabled={isOpening || !buyUrl}
               className="h-14 flex-1 p-1 flex justify-center items-center flex-row gap-2"
               style={{
                 backgroundColor: isOpening
