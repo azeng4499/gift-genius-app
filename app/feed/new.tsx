@@ -9,26 +9,8 @@ import {
   getCurrentUserId,
   setCurrentFeed,
 } from "@/lib/state/user-context";
-
-function parseOptionalNumber(value: string) {
-  const trimmed = value.trim();
-  if (!trimmed) return undefined;
-  const parsed = Number(trimmed);
-  return Number.isFinite(parsed) ? parsed : undefined;
-}
-
-const RELATIONSHIP_OPTIONS = [
-  "mom",
-  "dad",
-  "partner",
-  "spouse",
-  "friend",
-  "sibling",
-  "grandparent",
-  "coworker",
-  "child",
-  "other",
-];
+import { LabeledFeedField } from "@/components/feed-form/labeled-feed-field";
+import { RELATIONSHIP_OPTIONS, parseOptionalNumber } from "@/lib/feed-form-shared";
 
 export default function NewFeedScreen() {
   const [name, setName] = useState("");
@@ -105,64 +87,96 @@ export default function NewFeedScreen() {
           Fill out the person details. This creates a new feed for your active user.
         </Text>
 
-        <TextInput
-          value={name}
-          onChangeText={setName}
-          placeholder="Name (required)"
-          className="rounded-md border border-zinc-300 px-3 py-2 text-zinc-900"
-        />
-        <View>
-          <Pressable
-            className="rounded-md border border-zinc-300 px-3 py-2"
-            onPress={() => setRelationshipOpen((prev) => !prev)}
-          >
-            <Text className={relationship ? "text-zinc-900" : "text-zinc-400"}>
-              {relationship || "Relationship (optional)"}
-            </Text>
-          </Pressable>
-          {relationshipOpen ? (
-            <View className="mt-2 rounded-md border border-zinc-300 bg-white">
-              {RELATIONSHIP_OPTIONS.map((option) => {
-                const isSelected = relationship === option;
-                return (
-                  <Pressable
-                    key={option}
-                    onPress={() => {
-                      setRelationship(option);
-                      setRelationshipOpen(false);
-                    }}
-                    className="px-3 py-2"
-                    style={{
-                      backgroundColor: isSelected ? "rgba(31,122,92,0.08)" : "white",
-                    }}
-                  >
-                    <Text className="text-zinc-900">{option}</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-          ) : null}
-        </View>
-        <TextInput
-          value={interests}
-          onChangeText={setInterests}
-          placeholder="Interests comma-separated (optional)"
-          className="rounded-md border border-zinc-300 px-3 py-2 text-zinc-900"
-        />
-        <TextInput
-          value={budgetMin}
-          onChangeText={setBudgetMin}
-          placeholder="Budget min (optional)"
-          keyboardType="numeric"
-          className="rounded-md border border-zinc-300 px-3 py-2 text-zinc-900"
-        />
-        <TextInput
-          value={budgetMax}
-          onChangeText={setBudgetMax}
-          placeholder="Budget max (optional)"
-          keyboardType="numeric"
-          className="rounded-md border border-zinc-300 px-3 py-2 text-zinc-900"
-        />
+        <LabeledFeedField
+          label="Feed title"
+          hint="Shows at the top of the swipe screen—for example who gifts are for."
+        >
+          <TextInput
+            value={name}
+            onChangeText={setName}
+            placeholder="e.g. Mom, Jamie"
+            accessibilityLabel="Feed title"
+            className="rounded-md border border-zinc-300 px-3 py-2 text-zinc-900"
+          />
+        </LabeledFeedField>
+        <LabeledFeedField
+          label="Relationship"
+          hint="Helps tailor wording and tone for searches behind your swipe picks."
+        >
+          <View>
+            <Pressable
+              className="rounded-md border border-zinc-300 px-3 py-2"
+              accessibilityHint={relationshipOpen ? undefined : "Opens choices"}
+              accessibilityRole="button"
+              accessibilityLabel="Relationship"
+              onPress={() => setRelationshipOpen((prev) => !prev)}
+            >
+              <Text className={relationship ? "text-zinc-900" : "text-zinc-400"}>
+                {relationship || "Tap to choose (optional)"}
+              </Text>
+            </Pressable>
+            {relationshipOpen ? (
+              <View className="mt-2 rounded-md border border-zinc-300 bg-white">
+                {RELATIONSHIP_OPTIONS.map((option) => {
+                  const isSelected = relationship === option;
+                  return (
+                    <Pressable
+                      key={option}
+                      onPress={() => {
+                        setRelationship(option);
+                        setRelationshipOpen(false);
+                      }}
+                      className="px-3 py-2"
+                      style={{
+                        backgroundColor: isSelected ? "rgba(31,122,92,0.08)" : "white",
+                      }}
+                    >
+                      <Text className="text-zinc-900">{option}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : null}
+          </View>
+        </LabeledFeedField>
+        <LabeledFeedField
+          label="Interests"
+          hint="Comma-separated hobbies or topics—we match gifts that align with these."
+        >
+          <TextInput
+            value={interests}
+            onChangeText={setInterests}
+            placeholder="e.g. hiking, fiction, espresso"
+            accessibilityLabel="Interests"
+            className="rounded-md border border-zinc-300 px-3 py-2 text-zinc-900"
+          />
+        </LabeledFeedField>
+        <LabeledFeedField
+          label="Budget minimum"
+          hint="Whole dollars in your usual currency. Items below this are filtered out."
+        >
+          <TextInput
+            value={budgetMin}
+            onChangeText={setBudgetMin}
+            placeholder="Optional"
+            keyboardType="numeric"
+            accessibilityLabel="Budget minimum in dollars"
+            className="rounded-md border border-zinc-300 px-3 py-2 text-zinc-900"
+          />
+        </LabeledFeedField>
+        <LabeledFeedField
+          label="Budget maximum"
+          hint="Upper price cap for this feed."
+        >
+          <TextInput
+            value={budgetMax}
+            onChangeText={setBudgetMax}
+            placeholder="Optional"
+            keyboardType="numeric"
+            accessibilityLabel="Budget maximum in dollars"
+            className="rounded-md border border-zinc-300 px-3 py-2 text-zinc-900"
+          />
+        </LabeledFeedField>
 
         {error ? <Text className="text-sm text-red-600">{error}</Text> : null}
 

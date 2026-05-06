@@ -4,6 +4,7 @@ import BottomSheet, {
 } from "@gorhom/bottom-sheet";
 import { LinearGradient } from "expo-linear-gradient";
 import { Link, router, useLocalSearchParams } from "expo-router";
+import { useFocusEffect } from "@react-navigation/native";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -510,6 +511,33 @@ export default function SwipeScreen() {
     queueRemaining,
   ]);
 
+  useFocusEffect(
+    useCallback(() => {
+      const userId = getCurrentUserId();
+      const feedId = getCurrentFeedId();
+      if (!userId || !feedId) return;
+
+      let cancelled = false;
+      (async () => {
+        try {
+          const feeds = await api.getFeeds(userId);
+          if (cancelled) return;
+          setAvailableFeeds(feeds);
+          const current = feeds.find((f) => f.id === feedId);
+          if (current) {
+            setActiveFeedName(current.name);
+          }
+        } catch {
+          /* keep existing header if refresh fails */
+        }
+      })();
+
+      return () => {
+        cancelled = true;
+      };
+    }, [api])
+  );
+
   return (
     <SafeAreaView className="flex-1 bg-white">
       <StatusBar style="dark" />
@@ -522,7 +550,14 @@ export default function SwipeScreen() {
             <Text className="text-lg font-noto-serif-bold">{activeFeedName}</Text>
             <ChevronDown size={24} color="black" strokeWidth={1.5} />
           </Pressable>
-          <SlidersHorizontal size={30} color="black" strokeWidth={1.5} />
+          <Pressable
+            onPress={() => router.push("/feed/settings")}
+            accessibilityRole="button"
+            accessibilityLabel="Feed settings"
+            hitSlop={8}
+          >
+            <SlidersHorizontal size={30} color="black" strokeWidth={1.5} />
+          </Pressable>
         </View>
         <View className="px-4 pb-2">
           <Link href="/test" asChild>

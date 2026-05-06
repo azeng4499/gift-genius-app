@@ -81,7 +81,7 @@ export type LoginResponseDto = {
 };
 
 type RequestOptions = {
-  method?: "GET" | "POST";
+  method?: "GET" | "POST" | "PATCH" | "PUT";
   body?: unknown;
   requiresAuth?: boolean;
   retries?: number;
@@ -207,6 +207,24 @@ export function createGiftGeniusApiClient(config: ApiClientConfig) {
       return request<FeedDto>("/feeds", {
         method: "POST",
         body: payload,
+      });
+    },
+
+    /** Partial update; backend should accept the same preference fields as create. */
+    async updateFeed(
+      feedId: number,
+      payload: {
+        name: string;
+        relationship?: string | null;
+        interests?: string[];
+        budgetMin?: number | null;
+        budgetMax?: number | null;
+      }
+    ): Promise<FeedDto> {
+      return request<FeedDto>(`/feeds/${feedId}`, {
+        method: "PATCH",
+        body: payload,
+        requiresAuth: true,
       });
     },
 

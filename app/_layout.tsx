@@ -38,6 +38,7 @@ export default function RootLayout() {
         <Stack.Screen name="test/bootstrap" options={{ title: "User and Feed Setup" }} />
         <Stack.Screen name="test/feed" options={{ title: "Feed Loop Tests" }} />
         <Stack.Screen name="feed/new" options={{ title: "Add Feed Person" }} />
+        <Stack.Screen name="feed/settings" options={{ title: "Feed settings" }} />
         <Stack.Screen name="bookmarks" options={{ title: "Bookmarked Items" }} />
       </Stack>
     </GestureHandlerRootView>
