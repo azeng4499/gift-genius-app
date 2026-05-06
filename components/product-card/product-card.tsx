@@ -1,6 +1,7 @@
-import { Image } from "expo-image";
 import { ThemedText } from "@/components/themed-text";
+import type { QueueItemDto } from "@/lib/api/client";
 import * as Haptics from "expo-haptics";
+import { Image } from "expo-image";
 import {
   Bookmark,
   Check,
@@ -29,12 +30,11 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
-import type { QueueItemDto } from "@/lib/api/client";
 import ProductCardChip from "./components/product-card-chip";
 
 type InteractionType = "like" | "pass" | "save";
 
-const TITLE_MAX_LENGTH = 40;
+const TITLE_MAX_LENGTH = 60;
 
 function truncateCardTitle(title: string | null | undefined): string {
   if (title == null || title === "") {
@@ -72,7 +72,8 @@ type ProductCardProps = {
   item: QueueItemDto | null;
   queueRemaining?: number | null;
   onSparklesPress?: () => void;
-  onInteraction?: (type: InteractionType) => void;
+  /** Pass `{ clear: true }` when the user taps an action that already applies—removes only that interaction. */
+  onInteraction?: (type: InteractionType, opts?: { clear?: boolean }) => void;
   interactionInFlight?: boolean;
   activeInteractionType?: InteractionType | null;
   appliedInteractionType?: InteractionType | null;
@@ -213,117 +214,144 @@ const ProductCard = ({
       </View>
       <View className="w-full shrink-0 flex flex-col">
         <View className="w-full flex flex-row justify-between items-end px-4 py-3">
-        <View className="flex flex-row gap-2 items-start justify-center">
-          <View className="flex flex-row gap-1">
-            <Star size={16} color="#C2A14A" fill="#C2A14A" />
-            <Star size={16} color="#C2A14A" fill="#C2A14A" />
-            <Star size={16} color="#C2A14A" fill="#C2A14A" />
-            <Star size={16} color="#C2A14A" fill="#C2A14A" />
-            <StarHalf size={16} color="#C2A14A" fill="#C2A14A" />
+          <View className="flex flex-row gap-2 items-start justify-center">
+            <View className="flex flex-row gap-1">
+              <Star size={16} color="#C2A14A" fill="#C2A14A" />
+              <Star size={16} color="#C2A14A" fill="#C2A14A" />
+              <Star size={16} color="#C2A14A" fill="#C2A14A" />
+              <Star size={16} color="#C2A14A" fill="#C2A14A" />
+              <StarHalf size={16} color="#C2A14A" fill="#C2A14A" />
+            </View>
+            <ThemedText fontWeight="thin">{"(2k+)"}</ThemedText>
           </View>
-          <ThemedText fontWeight="thin">{"(2k+)"}</ThemedText>
-        </View>
-        <View className="flex flex-row gap-4 items-center">
-          <Pressable
-            disabled={interactionInFlight || !item}
-            onPress={() => onInteraction?.("save")}
-          >
-            <Bookmark
-              size={24}
-              color={interactionTypeToShow === "save" ? "#1f7a5c" : "black"}
-              fill={interactionTypeToShow === "save" ? "#1f7a5c" : "transparent"}
-              strokeWidth={1.25}
-            />
-          </Pressable>
-          <Pressable
-            disabled={interactionInFlight || !item}
-            onPress={() => onInteraction?.("pass")}
-          >
-            <ThumbsDown
-              size={24}
-              color={interactionTypeToShow === "pass" ? "#b42318" : "black"}
-              fill={interactionTypeToShow === "pass" ? "#b42318" : "transparent"}
-              strokeWidth={1.25}
-            />
-          </Pressable>
-          <Pressable
-            disabled={interactionInFlight || !item}
-            onPress={() => onInteraction?.("like")}
-          >
-            <Star size={24} color="black" strokeWidth={1.25} />
-          </Pressable>
-        </View>
+          <View className="flex flex-row gap-4 items-center">
+            <Pressable
+              disabled={interactionInFlight || !item}
+              onPress={() =>
+                onInteraction?.("save", {
+                  clear: interactionTypeToShow === "save",
+                })
+              }
+            >
+              <Bookmark
+                size={24}
+                color={interactionTypeToShow === "save" ? "#1f7a5c" : "black"}
+                fill={
+                  interactionTypeToShow === "save" ? "#1f7a5c" : "transparent"
+                }
+                strokeWidth={1.25}
+              />
+            </Pressable>
+            <Pressable
+              disabled={interactionInFlight || !item}
+              onPress={() =>
+                onInteraction?.("pass", {
+                  clear: interactionTypeToShow === "pass",
+                })
+              }
+            >
+              <ThumbsDown
+                size={24}
+                color={interactionTypeToShow === "pass" ? "#b42318" : "black"}
+                fill={
+                  interactionTypeToShow === "pass" ? "#b42318" : "transparent"
+                }
+                strokeWidth={1.25}
+              />
+            </Pressable>
+            <Pressable
+              disabled={interactionInFlight || !item}
+              onPress={() =>
+                onInteraction?.("like", {
+                  clear: interactionTypeToShow === "like",
+                })
+              }
+            >
+              <Star
+                size={24}
+                color={interactionTypeToShow === "like" ? "#C2A14A" : "black"}
+                fill={
+                  interactionTypeToShow === "like" ? "#C2A14A" : "transparent"
+                }
+                strokeWidth={1.25}
+              />
+            </Pressable>
+          </View>
         </View>
         <View className="w-full px-4 flex-row flex justify-between items-start">
-        <Text
-          className="text-xl leading-snug font-noto-serif-bold text-black shrink"
-          numberOfLines={3}
-          ellipsizeMode="tail"
-        >
-          {truncateCardTitle(item?.title)}
-        </Text>
+          <Text
+            className="text-xl leading-snug font-noto-serif-bold text-black shrink"
+            numberOfLines={3}
+            ellipsizeMode="tail"
+          >
+            {truncateCardTitle(item?.title)}
+          </Text>
         </View>
         <View className="w-full px-4 py-3 flex-row flex justify-between items-start">
-        <View className="flex flex-row items-end gap-3">
-          <View className="flex flex-row items-center gap-2">
-            <View
-              className="p-0.5 rounded-full flex justify-center items-center"
-              style={{ backgroundColor: "rgba(31, 122, 92, 1)" }}
-            >
-              <Check size={12} color="white" />
+          <View className="flex flex-row items-end gap-3">
+            <View className="flex flex-row items-center gap-2">
+              <View
+                className="p-0.5 rounded-full flex justify-center items-center"
+                style={{ backgroundColor: "rgba(31, 122, 92, 1)" }}
+              >
+                <Check size={12} color="white" />
+              </View>
+              <ThemedText fontWeight="light">In-range</ThemedText>
             </View>
-            <ThemedText fontWeight="light">In-range</ThemedText>
+            <Text className="text-zinc-600">|</Text>
+            <ThemedText>{priceLabel}</ThemedText>
           </View>
-          <Text className="text-zinc-600">|</Text>
-          <ThemedText>{priceLabel}</ThemedText>
-        </View>
-        <ThemedText fontWeight="light">
-          {typeof queueRemaining === "number"
-            ? `${queueRemaining} left`
-            : ""}
-        </ThemedText>
+          <ThemedText fontWeight="light">
+            {typeof queueRemaining === "number" ? `${queueRemaining} left` : ""}
+          </ThemedText>
         </View>
         <View className="w-full flex flex-row justify-between items-end pb-2 px-4">
-        <View className="flex flex-row gap-3">
-          {(item?.tags.length ? item.tags : ["No tags"]).slice(0, 2).map((tag) => (
-            <ProductCardChip key={tag} label={tag} />
-          ))}
-        </View>
-        <Share size={24} color="black" strokeWidth={1.25} />
+          <View className="flex flex-row gap-3">
+            {(item?.tags.length ? item.tags : ["No tags"])
+              .slice(0, 2)
+              .map((tag) => (
+                <ProductCardChip key={tag} label={tag} />
+              ))}
+          </View>
+          <Share size={24} color="black" strokeWidth={1.25} />
         </View>
         <View className="w-full">
           <View className="px-4">
-          <View className="w-full h-0.5 bg-zinc-200 "></View>
-          <View className="py-4 flex-row flex gap-3">
-            <Pressable
-              onPress={() => {
-                setIsOpening(true);
-                if (!buyUrl) {
-                  setIsOpening(false);
-                  return;
-                }
-                Linking.openURL(buyUrl).finally(() => setIsOpening(false));
-              }}
-              disabled={isOpening || !buyUrl}
-              className="h-14 flex-1 p-1 flex justify-center items-center flex-row gap-2"
-              style={{
-                backgroundColor: isOpening
-                  ? "rgba(31, 122, 92, 0.7)"
-                  : "rgba(31, 122, 92, 1)",
-              }}
-            >
-              {isOpening ? (
-                <ActivityIndicator size="small" color="white" />
-              ) : (
-                <View className="flex-row flex items-center justify-center gap-2">
-                  <ThemedText fontWeight="semibold" fontStyle="rounded" inverse>
-                    Shop this item
-                  </ThemedText>
-                  <ShoppingBag size={16} color="white" strokeWidth={2} />
-                </View>
-              )}
-            </Pressable>
-          </View>
+            <View className="w-full h-0.5 bg-zinc-200 "></View>
+            <View className="py-4 flex-row flex gap-3">
+              <Pressable
+                onPress={() => {
+                  setIsOpening(true);
+                  if (!buyUrl) {
+                    setIsOpening(false);
+                    return;
+                  }
+                  Linking.openURL(buyUrl).finally(() => setIsOpening(false));
+                }}
+                disabled={isOpening || !buyUrl}
+                className="h-14 flex-1 p-1 flex justify-center items-center flex-row gap-2"
+                style={{
+                  backgroundColor: isOpening
+                    ? "rgba(31, 122, 92, 0.7)"
+                    : "rgba(31, 122, 92, 1)",
+                }}
+              >
+                {isOpening ? (
+                  <ActivityIndicator size="small" color="white" />
+                ) : (
+                  <View className="flex-row flex items-center justify-center gap-2">
+                    <ThemedText
+                      fontWeight="semibold"
+                      fontStyle="rounded"
+                      inverse
+                    >
+                      Shop this item
+                    </ThemedText>
+                    <ShoppingBag size={16} color="white" strokeWidth={2} />
+                  </View>
+                )}
+              </Pressable>
+            </View>
           </View>
         </View>
       </View>

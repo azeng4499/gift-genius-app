@@ -81,7 +81,7 @@ export type LoginResponseDto = {
 };
 
 type RequestOptions = {
-  method?: "GET" | "POST" | "PATCH" | "PUT";
+  method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
   body?: unknown;
   requiresAuth?: boolean;
   retries?: number;
@@ -241,6 +241,23 @@ export function createGiftGeniusApiClient(config: ApiClientConfig) {
       return request<{ ok: true }>(`/feeds/${feedId}/interactions`, {
         method: "POST",
         body: payload,
+        requiresAuth: true,
+      });
+    },
+
+    /**
+     * Clears a previous interaction on this catalog item for the feed user.
+     * Uses query params so the request has no DELETE body (wide HTTP proxy support).
+     * Backend convention: DELETE /feeds/:feedId/interactions?catalogItemId=&type=like|pass|save
+     */
+    async deleteInteraction(
+      feedId: number,
+      catalogItemId: number,
+      type: "like" | "pass" | "save",
+    ): Promise<{ ok: true }> {
+      const q = `?catalogItemId=${encodeURIComponent(String(catalogItemId))}&type=${encodeURIComponent(type)}`;
+      return request<{ ok: true }>(`/feeds/${feedId}/interactions${q}`, {
+        method: "DELETE",
         requiresAuth: true,
       });
     },

@@ -251,16 +251,53 @@ export default function SwipeScreen() {
   }, [fetchNextCard, logFeedEvent]);
 
   const submitInteraction = useCallback(
-    async (type: "like" | "pass" | "save") => {
+    async (type: "like" | "pass" | "save", opts?: { clear?: boolean }) => {
       const feedId = getCurrentFeedId();
       const currentItem = feedItems[currentCardIndex];
       if (!feedId || !currentItem) {
         return;
       }
 
+      const clearing = !!opts?.clear;
+      const appliedForItem = interactionByItemId[currentItem.id];
+      if (clearing && appliedForItem !== type) {
+        return;
+      }
+
       setInteractionInFlight(true);
       setActiveInteractionType(type);
       try {
+        if (clearing) {
+          logFeedEvent("interaction_clear", {
+            type,
+            itemId: currentItem.id,
+            itemTitle: currentItem.title,
+            currentCardIndex,
+          });
+          await api.deleteInteraction(feedId, currentItem.id, type);
+          interactedItemIdsRef.current.delete(currentItem.id);
+          setInteractionByItemId((prev) => {
+            const next = { ...prev };
+            delete next[currentItem.id];
+            return next;
+          });
+
+          let msg: string | null = null;
+          if (type === "save") msg = "Removed from saved";
+          else if (type === "pass") msg = "Removed from disliked";
+          else if (type === "like") msg = "Removed like";
+          if (msg) {
+            setActionMessage(msg);
+            if (actionMessageTimeoutRef.current) {
+              clearTimeout(actionMessageTimeoutRef.current);
+            }
+            actionMessageTimeoutRef.current = setTimeout(() => {
+              setActionMessage(null);
+            }, 1500);
+          }
+          return;
+        }
+
         logFeedEvent("interaction_submit", {
           type,
           itemId: currentItem.id,
@@ -305,7 +342,7 @@ export default function SwipeScreen() {
         setActiveInteractionType(null);
       }
     },
-    [api, appendNextCard, currentCardIndex, feedItems]
+    [api, appendNextCard, currentCardIndex, feedItems, interactionByItemId, logFeedEvent]
   );
 
   useEffect(() => {
