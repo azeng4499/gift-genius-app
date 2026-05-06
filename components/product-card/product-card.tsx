@@ -15,6 +15,7 @@ import { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
+  LayoutChangeEvent,
   Linking,
   NativeScrollEvent,
   NativeSyntheticEvent,
@@ -32,6 +33,18 @@ import type { QueueItemDto } from "@/lib/api/client";
 import ProductCardChip from "./components/product-card-chip";
 
 type InteractionType = "like" | "pass" | "save";
+
+const TITLE_MAX_LENGTH = 40;
+
+function truncateCardTitle(title: string | null | undefined): string {
+  if (title == null || title === "") {
+    return "Loading recommendation...";
+  }
+  if (title.length <= TITLE_MAX_LENGTH) {
+    return title;
+  }
+  return `${title.slice(0, TITLE_MAX_LENGTH)}...`;
+}
 
 function CarouselDot({
   index,
@@ -74,7 +87,8 @@ const ProductCard = ({
   activeInteractionType = null,
   appliedInteractionType = null,
 }: ProductCardProps) => {
-  const [containerWidth, setContainerWidth] = useState(0);
+  const [galleryWidth, setGalleryWidth] = useState(0);
+  const [galleryHeight, setGalleryHeight] = useState(0);
   const [isOpening, setIsOpening] = useState(false);
   const activeIndex = useSharedValue(0);
   const [isCarouselLongPress, setIsCarouselLongPress] = useState(false);
@@ -95,22 +109,22 @@ const ProductCard = ({
 
   const onScroll = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-      if (containerWidth > 0) {
-        activeIndex.value = e.nativeEvent.contentOffset.x / containerWidth;
+      if (galleryWidth > 0) {
+        activeIndex.value = e.nativeEvent.contentOffset.x / galleryWidth;
       }
     },
-    [containerWidth, activeIndex],
+    [galleryWidth, activeIndex],
   );
 
   const renderCarouselItem = useCallback(
     ({ item: imageItem }: { item: (typeof carouselImages)[number] }) => (
       <View
-        style={{ width: containerWidth }}
+        style={{ width: galleryWidth, height: galleryHeight }}
         className="bg-white flex justify-center items-center"
       >
         <Image
           source={imageItem.uri}
-          style={{ width: containerWidth, height: containerWidth }}
+          style={{ width: galleryWidth, height: galleryHeight }}
           contentFit="contain"
           contentPosition="center"
           cachePolicy="memory-disk"
@@ -118,14 +132,21 @@ const ProductCard = ({
         />
       </View>
     ),
-    [containerWidth, carouselImages],
+    [galleryWidth, galleryHeight],
   );
 
+  const onGalleryLayout = useCallback((event: LayoutChangeEvent) => {
+    const { width, height } = event.nativeEvent.layout;
+    if (width <= 0 || height <= 0) return;
+    setGalleryWidth(width);
+    setGalleryHeight(height);
+  }, []);
+
   return (
-    <View className="w-full h-full overflow-hidden bg-neutral-100 rounded-xl border border-neutral-200">
+    <View className="flex-1 w-full overflow-hidden flex flex-col bg-neutral-100 rounded-xl border border-neutral-200">
       <View
-        className="w-full aspect-square relative"
-        onLayout={(e) => setContainerWidth(e.nativeEvent.layout.width)}
+        className="w-full relative flex-1 min-h-0"
+        onLayout={onGalleryLayout}
         onTouchStart={() => {
           longPressTimer.current = setTimeout(() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -149,8 +170,9 @@ const ProductCard = ({
           setIsCarouselLongPress(false);
         }}
       >
-        {containerWidth > 0 && (
+        {galleryWidth > 0 && galleryHeight > 0 && (
           <FlatList
+            style={{ flex: 1 }}
             data={carouselImages}
             renderItem={renderCarouselItem}
             keyExtractor={(_, i) => i.toString()}
@@ -189,7 +211,8 @@ const ProductCard = ({
           </View>
         )}
       </View>
-      <View className="w-full flex flex-row justify-between items-end px-4 py-6">
+      <View className="w-full shrink-0 flex flex-col">
+        <View className="w-full flex flex-row justify-between items-end px-4 py-3">
         <View className="flex flex-row gap-2 items-start justify-center">
           <View className="flex flex-row gap-1">
             <Star size={16} color="#C2A14A" fill="#C2A14A" />
@@ -230,13 +253,17 @@ const ProductCard = ({
             <Star size={24} color="black" strokeWidth={1.25} />
           </Pressable>
         </View>
-      </View>
-      <View className="w-full px-4 flex-row flex justify-between items-start">
-        <Text className="text-2xl leading-20v font-noto-serif-bold text-black">
-          {item?.title ?? "Loading recommendation..."}
+        </View>
+        <View className="w-full px-4 flex-row flex justify-between items-start">
+        <Text
+          className="text-xl leading-snug font-noto-serif-bold text-black shrink"
+          numberOfLines={3}
+          ellipsizeMode="tail"
+        >
+          {truncateCardTitle(item?.title)}
         </Text>
-      </View>
-      <View className="w-full px-4 py-6 flex-row flex justify-between items-start">
+        </View>
+        <View className="w-full px-4 py-3 flex-row flex justify-between items-start">
         <View className="flex flex-row items-end gap-3">
           <View className="flex flex-row items-center gap-2">
             <View
@@ -255,17 +282,17 @@ const ProductCard = ({
             ? `${queueRemaining} left`
             : ""}
         </ThemedText>
-      </View>
-      <View className="w-full flex-1 flex flex-row justify-between items-end pb-4 px-4">
+        </View>
+        <View className="w-full flex flex-row justify-between items-end pb-2 px-4">
         <View className="flex flex-row gap-3">
           {(item?.tags.length ? item.tags : ["No tags"]).slice(0, 2).map((tag) => (
             <ProductCardChip key={tag} label={tag} />
           ))}
         </View>
         <Share size={24} color="black" strokeWidth={1.25} />
-      </View>
-      <View className="w-full">
-        <View className="px-4">
+        </View>
+        <View className="w-full">
+          <View className="px-4">
           <View className="w-full h-0.5 bg-zinc-200 "></View>
           <View className="py-4 flex-row flex gap-3">
             <Pressable
@@ -296,6 +323,7 @@ const ProductCard = ({
                 </View>
               )}
             </Pressable>
+          </View>
           </View>
         </View>
       </View>

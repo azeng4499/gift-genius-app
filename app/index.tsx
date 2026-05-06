@@ -84,8 +84,6 @@ export default function SwipeScreen() {
   const [interactionByItemId, setInteractionByItemId] = useState<
     Record<number, "like" | "pass" | "save">
   >({});
-  const [savedCount, setSavedCount] = useState(0);
-  const [dislikedCount, setDislikedCount] = useState(0);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [pendingScrollIndex, setPendingScrollIndex] = useState<number | null>(null);
   const feedListRef = useRef<FlatList<QueueItemDto>>(null);
@@ -275,10 +273,8 @@ export default function SwipeScreen() {
         interactedItemIdsRef.current.add(currentItem.id);
         setInteractionByItemId((prev) => ({ ...prev, [currentItem.id]: type }));
         if (type === "save") {
-          setSavedCount((prev) => prev + 1);
           setActionMessage("Saved to your saved items");
         } else if (type === "pass") {
-          setDislikedCount((prev) => prev + 1);
           setActionMessage("Added to disliked items");
         }
         if (actionMessageTimeoutRef.current) {
@@ -534,10 +530,6 @@ export default function SwipeScreen() {
               <Text className="text-sm text-zinc-700">Open integration test screens</Text>
             </Pressable>
           </Link>
-        </View>
-        <View className="px-4 pb-2 flex-row items-center justify-between">
-          <Text className="text-xs text-zinc-600">Saved: {savedCount}</Text>
-          <Text className="text-xs text-zinc-600">Disliked: {dislikedCount}</Text>
         </View>
         <View className="px-4 pb-2 h-12">
           {actionMessage ? (
