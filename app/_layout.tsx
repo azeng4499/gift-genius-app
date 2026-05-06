@@ -40,6 +40,7 @@ export default function RootLayout() {
         <Stack.Screen name="feed/new" options={{ title: "Add Feed Person" }} />
         <Stack.Screen name="feed/settings" options={{ title: "Feed settings" }} />
         <Stack.Screen name="bookmarks" options={{ title: "Bookmarked Items" }} />
+        <Stack.Screen name="profile" options={{ title: "Profile" }} />
       </Stack>
     </GestureHandlerRootView>
   );

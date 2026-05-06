@@ -73,6 +73,7 @@ export default function SwipeScreen() {
   const params = useLocalSearchParams<{
     refreshKey?: string;
     selectedFeedId?: string;
+    reconnectKey?: string;
   }>();
   const [feedItems, setFeedItems] = useState<QueueItemDto[]>([]);
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
@@ -222,6 +223,42 @@ export default function SwipeScreen() {
 
     refreshAfterCreate();
   }, [api, params.refreshKey, params.selectedFeedId, switchToFeed]);
+
+  const reconnectSessionRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const key = params.reconnectKey;
+    if (!key || key === reconnectSessionRef.current) return;
+    reconnectSessionRef.current = key;
+
+    let cancelled = false;
+
+    const runReconnect = async () => {
+      try {
+        hasBootstrappedRef.current = false;
+        await bootstrapUserAndFeed();
+        if (cancelled) return;
+        await resetAndLoadFeedCards();
+        if (!cancelled) {
+          setBootstrapError(null);
+          reconnectSessionRef.current = null;
+          router.replace("/");
+        }
+      } catch (error) {
+        if (!cancelled) {
+          reconnectSessionRef.current = null;
+          const message =
+            error instanceof Error ? error.message : "Failed to reconnect demo session.";
+          setBootstrapError(message);
+        }
+      }
+    };
+
+    runReconnect();
+    return () => {
+      cancelled = true;
+    };
+  }, [params.reconnectKey, bootstrapUserAndFeed, resetAndLoadFeedCards]);
 
   const fetchNextCard = useCallback(async () => {
     const feedId = getCurrentFeedId();
@@ -681,7 +718,11 @@ export default function SwipeScreen() {
               <Bookmark size={24} color="black" strokeWidth={1.5} />
             </Pressable>
           </Link>
-          <CircleUserRound size={24} color="black" strokeWidth={1.5} />
+          <Link href="/profile" asChild>
+            <Pressable accessibilityRole="button" accessibilityLabel="Profile">
+              <CircleUserRound size={24} color="black" strokeWidth={1.5} />
+            </Pressable>
+          </Link>
         </View>
       </ThemedView>
       <BottomSheet
