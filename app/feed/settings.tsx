@@ -157,136 +157,140 @@ export default function FeedSettingsScreen() {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         keyboardVerticalOffset={Platform.OS === "ios" ? 64 : 0}
       >
-        <ScrollView
-          className="flex-1"
-          contentContainerClassName="gap-3 p-4 pb-8"
-          keyboardShouldPersistTaps="handled"
-        >
-          <Text className="text-xl font-noto-serif-bold">Feed settings</Text>
-          <Text className="text-sm text-zinc-600">
-            Update who this feed is for, interests, and budget. Saving returns you to swipes.
-          </Text>
-
-          <LabeledFeedField
-            label="Feed title"
-            hint="Shows at the top of the swipe screen—for example who gifts are for."
+        <View className="flex-1">
+          <ScrollView
+            className="flex-1"
+            contentContainerClassName="gap-3 p-4 pb-4"
+            keyboardShouldPersistTaps="handled"
           >
-            <TextInput
-              value={name}
-              onChangeText={setName}
-              placeholder="e.g. Mom, Jamie"
-              accessibilityLabel="Feed title"
-              className="rounded-md border border-zinc-300 px-3 py-2 text-zinc-900"
-            />
-          </LabeledFeedField>
-          <LabeledFeedField
-            label="Relationship"
-            hint="Helps tailor wording and tone for searches behind your swipe picks."
-          >
-            <View>
-              <Pressable
-                className="rounded-md border border-zinc-300 px-3 py-2"
-                accessibilityHint={relationshipOpen ? undefined : "Opens choices"}
-                accessibilityRole="button"
-                accessibilityLabel="Relationship"
-                onPress={() => setRelationshipOpen((prev) => !prev)}
-              >
-                <Text className={relationship ? "text-zinc-900" : "text-zinc-400"}>
-                  {relationship || "Tap to choose (optional)"}
-                </Text>
-              </Pressable>
-              {relationshipOpen ? (
-                <View className="mt-2 rounded-md border border-zinc-300 bg-white">
-                  {RELATIONSHIP_OPTIONS.map((option) => {
-                    const isSelected = relationship === option;
-                    return (
-                      <Pressable
-                        key={option}
-                        onPress={() => {
-                          setRelationship(option);
-                          setRelationshipOpen(false);
-                        }}
-                        className="px-3 py-2"
-                        style={{
-                          backgroundColor: isSelected ? "rgba(31,122,92,0.08)" : "white",
-                        }}
-                      >
-                        <Text className="text-zinc-900">{option}</Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              ) : null}
-            </View>
-          </LabeledFeedField>
-          <View className="gap-2">
-            <Text className="text-sm font-medium text-zinc-900">Saved interests</Text>
-            <Text className="-mt-0.5 text-xs leading-snug text-zinc-500">
-              Already on this feed—we use these for matching. You cannot remove them here; use Add
-              interests to append more.
+            <Text className="text-xl font-noto-serif-bold">Feed settings</Text>
+            <Text className="text-sm text-zinc-600">
+              Update who this feed is for, interests, and budget. Saving returns you to swipes.
             </Text>
-            {savedInterests.length > 0 ? (
-              <View className="flex-row flex-wrap gap-2">
-                {savedInterests.map((tag, index) => (
-                  <ReadOnlyInterestChip key={`${tag}-${index}`} label={tag} />
-                ))}
+
+            <LabeledFeedField
+              label="Feed title"
+              hint="Shows at the top of the swipe screen—for example who gifts are for."
+            >
+              <TextInput
+                value={name}
+                onChangeText={setName}
+                placeholder="e.g. Mom, Jamie"
+                accessibilityLabel="Feed title"
+                className="rounded-md border border-zinc-300 px-3 py-2 text-zinc-900"
+              />
+            </LabeledFeedField>
+            <LabeledFeedField
+              label="Relationship"
+              hint="Helps tailor wording and tone for searches behind your swipe picks."
+            >
+              <View>
+                <Pressable
+                  className="rounded-md border border-zinc-300 px-3 py-2"
+                  accessibilityHint={relationshipOpen ? undefined : "Opens choices"}
+                  accessibilityRole="button"
+                  accessibilityLabel="Relationship"
+                  onPress={() => setRelationshipOpen((prev) => !prev)}
+                >
+                  <Text className={relationship ? "text-zinc-900" : "text-zinc-400"}>
+                    {relationship || "Tap to choose (optional)"}
+                  </Text>
+                </Pressable>
+                {relationshipOpen ? (
+                  <View className="mt-2 rounded-md border border-zinc-300 bg-white">
+                    {RELATIONSHIP_OPTIONS.map((option) => {
+                      const isSelected = relationship === option;
+                      return (
+                        <Pressable
+                          key={option}
+                          onPress={() => {
+                            setRelationship(option);
+                            setRelationshipOpen(false);
+                          }}
+                          className="px-3 py-2"
+                          style={{
+                            backgroundColor: isSelected ? "rgba(31,122,92,0.08)" : "white",
+                          }}
+                        >
+                          <Text className="text-zinc-900">{option}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                ) : null}
               </View>
-            ) : (
-              <Text className="text-sm text-zinc-500">No interests on this feed yet.</Text>
-            )}
+            </LabeledFeedField>
+            <View className="gap-2">
+              <Text className="text-sm font-medium text-zinc-900">Saved interests</Text>
+              <Text className="-mt-0.5 text-xs leading-snug text-zinc-500">
+                Already on this feed—we use these for matching. You cannot remove them here; use Add
+                interests to append more.
+              </Text>
+              {savedInterests.length > 0 ? (
+                <View className="flex-row flex-wrap gap-2">
+                  {savedInterests.map((tag, index) => (
+                    <ReadOnlyInterestChip key={`${tag}-${index}`} label={tag} />
+                  ))}
+                </View>
+              ) : (
+                <Text className="text-sm text-zinc-500">No interests on this feed yet.</Text>
+              )}
+            </View>
+            <LabeledFeedField
+              label="Add interests"
+              hint="Comma-separated hobbies or topics to add on top of saved ones; duplicates are skipped."
+            >
+              <TextInput
+                value={newInterestsText}
+                onChangeText={setNewInterestsText}
+                placeholder="e.g. hiking, fiction, espresso"
+                accessibilityLabel="Additional interests to add"
+                className="rounded-md border border-zinc-300 px-3 py-2 text-zinc-900"
+              />
+            </LabeledFeedField>
+            <LabeledFeedField
+              label="Budget minimum"
+              hint="Whole dollars in your usual currency. Items below this are filtered out."
+            >
+              <TextInput
+                value={budgetMin}
+                onChangeText={setBudgetMin}
+                placeholder="Optional"
+                keyboardType="numeric"
+                accessibilityLabel="Budget minimum in dollars"
+                className="rounded-md border border-zinc-300 px-3 py-2 text-zinc-900"
+              />
+            </LabeledFeedField>
+            <LabeledFeedField
+              label="Budget maximum"
+              hint="Upper price cap for this feed."
+            >
+              <TextInput
+                value={budgetMax}
+                onChangeText={setBudgetMax}
+                placeholder="Optional"
+                keyboardType="numeric"
+                accessibilityLabel="Budget maximum in dollars"
+                className="rounded-md border border-zinc-300 px-3 py-2 text-zinc-900"
+              />
+            </LabeledFeedField>
+
+            {error ? <Text className="text-sm text-red-600">{error}</Text> : null}
+          </ScrollView>
+
+          <View className="border-t border-zinc-200 bg-white px-4 pt-3 pb-2">
+            <Pressable
+              onPress={onSave}
+              disabled={submitting || !feedSnapshot}
+              className="rounded-md bg-black px-4 py-3.5"
+              style={{ opacity: submitting || !feedSnapshot ? 0.6 : 1 }}
+            >
+              <Text className="text-center text-base font-medium text-white">
+                {submitting ? "Saving…" : "Save changes"}
+              </Text>
+            </Pressable>
           </View>
-          <LabeledFeedField
-            label="Add interests"
-            hint="Comma-separated hobbies or topics to add on top of saved ones; duplicates are skipped."
-          >
-            <TextInput
-              value={newInterestsText}
-              onChangeText={setNewInterestsText}
-              placeholder="e.g. hiking, fiction, espresso"
-              accessibilityLabel="Additional interests to add"
-              className="rounded-md border border-zinc-300 px-3 py-2 text-zinc-900"
-            />
-          </LabeledFeedField>
-          <LabeledFeedField
-            label="Budget minimum"
-            hint="Whole dollars in your usual currency. Items below this are filtered out."
-          >
-            <TextInput
-              value={budgetMin}
-              onChangeText={setBudgetMin}
-              placeholder="Optional"
-              keyboardType="numeric"
-              accessibilityLabel="Budget minimum in dollars"
-              className="rounded-md border border-zinc-300 px-3 py-2 text-zinc-900"
-            />
-          </LabeledFeedField>
-          <LabeledFeedField
-            label="Budget maximum"
-            hint="Upper price cap for this feed."
-          >
-            <TextInput
-              value={budgetMax}
-              onChangeText={setBudgetMax}
-              placeholder="Optional"
-              keyboardType="numeric"
-              accessibilityLabel="Budget maximum in dollars"
-              className="rounded-md border border-zinc-300 px-3 py-2 text-zinc-900"
-            />
-          </LabeledFeedField>
-
-          {error ? <Text className="text-sm text-red-600">{error}</Text> : null}
-
-          <Pressable
-            onPress={onSave}
-            disabled={submitting || !feedSnapshot}
-            className="rounded-md bg-black px-4 py-3"
-            style={{ opacity: submitting || !feedSnapshot ? 0.6 : 1 }}
-          >
-            <Text className="text-center text-white">
-              {submitting ? "Saving…" : "Save changes"}
-            </Text>
-          </Pressable>
-        </ScrollView>
+        </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );

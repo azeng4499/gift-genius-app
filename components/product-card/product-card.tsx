@@ -70,7 +70,6 @@ function CarouselDot({
 
 type ProductCardProps = {
   item: QueueItemDto | null;
-  queueRemaining?: number | null;
   onSparklesPress?: () => void;
   /** Pass `{ clear: true }` when the user taps an action that already applies—removes only that interaction. */
   onInteraction?: (type: InteractionType, opts?: { clear?: boolean }) => void;
@@ -81,7 +80,6 @@ type ProductCardProps = {
 
 const ProductCard = ({
   item,
-  queueRemaining,
   onSparklesPress,
   onInteraction,
   interactionInFlight = false,
@@ -259,23 +257,6 @@ const ProductCard = ({
                 strokeWidth={1.25}
               />
             </Pressable>
-            <Pressable
-              disabled={interactionInFlight || !item}
-              onPress={() =>
-                onInteraction?.("like", {
-                  clear: interactionTypeToShow === "like",
-                })
-              }
-            >
-              <Star
-                size={24}
-                color={interactionTypeToShow === "like" ? "#C2A14A" : "black"}
-                fill={
-                  interactionTypeToShow === "like" ? "#C2A14A" : "transparent"
-                }
-                strokeWidth={1.25}
-              />
-            </Pressable>
           </View>
         </View>
         <View className="w-full px-4 flex-row flex justify-between items-start">
@@ -287,7 +268,7 @@ const ProductCard = ({
             {truncateCardTitle(item?.title)}
           </Text>
         </View>
-        <View className="w-full px-4 py-3 flex-row flex justify-between items-start">
+        <View className="w-full px-4 py-3 flex-row items-start">
           <View className="flex flex-row items-end gap-3">
             <View className="flex flex-row items-center gap-2">
               <View
@@ -301,9 +282,6 @@ const ProductCard = ({
             <Text className="text-zinc-600">|</Text>
             <ThemedText>{priceLabel}</ThemedText>
           </View>
-          <ThemedText fontWeight="light">
-            {typeof queueRemaining === "number" ? `${queueRemaining} left` : ""}
-          </ThemedText>
         </View>
         <View className="w-full flex flex-row justify-between items-end pb-2 px-4">
           <View className="flex flex-row gap-3">

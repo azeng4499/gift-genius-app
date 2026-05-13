@@ -28,8 +28,6 @@ import {
   ChevronDown,
   CircleUserRound,
   House,
-  Layers,
-  Newspaper,
   SlidersHorizontal,
 } from "lucide-react-native";
 
@@ -77,7 +75,6 @@ export default function SwipeScreen() {
   }>();
   const [feedItems, setFeedItems] = useState<QueueItemDto[]>([]);
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
-  const [queueRemaining, setQueueRemaining] = useState<number | null>(null);
   const [feedLoading, setFeedLoading] = useState(false);
   const [interactionInFlight, setInteractionInFlight] = useState(false);
   const [activeInteractionType, setActiveInteractionType] = useState<
@@ -269,7 +266,6 @@ export default function SwipeScreen() {
     setFeedLoading(true);
     try {
       const next = await api.getNext(feedId);
-      setQueueRemaining(next.queueRemaining);
       return next;
     } finally {
       setFeedLoading(false);
@@ -521,7 +517,6 @@ export default function SwipeScreen() {
       <View style={{ height: feedHeight }} className="w-full py-2">
         <ProductCard
           item={item}
-          queueRemaining={queueRemaining}
           interactionInFlight={interactionInFlight}
           activeInteractionType={
             interactionInFlight && feedItems[currentCardIndex]?.id === item.id
@@ -538,7 +533,6 @@ export default function SwipeScreen() {
       activeInteractionType,
       feedHeight,
       interactionInFlight,
-      queueRemaining,
       submitInteraction,
     ]
   );
@@ -571,7 +565,6 @@ export default function SwipeScreen() {
       currentCardIndex,
       itemId: visibleItem.id,
       itemTitle: visibleItem.title,
-      queueRemaining,
       loadedCards: feedItems.length,
       feedLoading,
       interactionInFlight,
@@ -582,7 +575,6 @@ export default function SwipeScreen() {
     feedLoading,
     interactionInFlight,
     logFeedEvent,
-    queueRemaining,
   ]);
 
   useFocusEffect(
@@ -709,17 +701,38 @@ export default function SwipeScreen() {
             pointerEvents="none"
           />
         </View>
-        <View className="w-full pt-6 pb-2 flex-row flex justify-around items-center px-4">
-          <House size={24} color="black" strokeWidth={1.5} />
-          <Layers size={24} color="black" strokeWidth={1.5} />
-          <Newspaper size={24} color="black" strokeWidth={1.5} />
+        <View className="w-full flex-row items-center pt-6 pb-2 px-2">
+          <Pressable
+            className="flex-1 items-center py-2"
+            accessibilityRole="button"
+            accessibilityLabel="Home"
+            hitSlop={12}
+            onPress={() => {
+              if (feedItems.length > 0 && feedHeight > 0) {
+                feedListRef.current?.scrollToIndex({ index: 0, animated: true });
+                setCurrentCardIndex(0);
+              }
+            }}
+          >
+            <House size={24} color="black" strokeWidth={1.5} />
+          </Pressable>
           <Link href="/bookmarks" asChild>
-            <Pressable>
+            <Pressable
+              className="flex-1 items-center py-2"
+              accessibilityRole="button"
+              accessibilityLabel="Saved items"
+              hitSlop={12}
+            >
               <Bookmark size={24} color="black" strokeWidth={1.5} />
             </Pressable>
           </Link>
           <Link href="/profile" asChild>
-            <Pressable accessibilityRole="button" accessibilityLabel="Profile">
+            <Pressable
+              className="flex-1 items-center py-2"
+              accessibilityRole="button"
+              accessibilityLabel="Profile"
+              hitSlop={12}
+            >
               <CircleUserRound size={24} color="black" strokeWidth={1.5} />
             </Pressable>
           </Link>
