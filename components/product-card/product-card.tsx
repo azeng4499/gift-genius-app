@@ -70,7 +70,6 @@ function CarouselDot({
 
 type ProductCardProps = {
   item: QueueItemDto | null;
-  onSparklesPress?: () => void;
   /** Pass `{ clear: true }` when the user taps an action that already applies—removes only that interaction. */
   onInteraction?: (type: InteractionType, opts?: { clear?: boolean }) => void;
   interactionInFlight?: boolean;
@@ -80,7 +79,6 @@ type ProductCardProps = {
 
 const ProductCard = ({
   item,
-  onSparklesPress,
   onInteraction,
   interactionInFlight = false,
   activeInteractionType = null,
@@ -188,16 +186,18 @@ const ProductCard = ({
             className="absolute bottom-0 top-0 left-0 right-0 flex justify-between items-center w-full h-full pt-2 px-2 pb-4"
             pointerEvents="box-none"
           >
-            <View className="w-full flex flex-row justify-end items-end">
-              <Pressable
+            <View
+              className="w-full flex flex-row justify-end items-end"
+              pointerEvents="none"
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+            >
+              <View
                 className="p-4 rounded-xl"
                 style={{ backgroundColor: "rgba(0, 0, 0, 0.85)" }}
-                onPress={() => {
-                  onSparklesPress?.();
-                }}
               >
                 <Sparkles size={20} color="white" strokeWidth={1.5} />
-              </Pressable>
+              </View>
             </View>
             <View
               className="flex-row justify-center items-center gap-1.5"

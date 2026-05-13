@@ -525,7 +525,6 @@ export default function SwipeScreen() {
           }
           appliedInteractionType={interactionByItemId[item.id] ?? null}
           onInteraction={submitInteraction}
-          onSparklesPress={() => bottomSheetRef.current?.snapToIndex(0)}
         />
       </View>
     ),
