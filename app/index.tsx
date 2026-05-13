@@ -33,6 +33,7 @@ import {
 
 import ProductCard from "@/components/product-card/product-card";
 import {
+  ApiError,
   createGiftGeniusApiClient,
   type FeedDto,
   type QueueItemDto,
@@ -47,6 +48,15 @@ import {
   setCurrentFeed,
   setCurrentUser,
 } from "@/lib/state/user-context";
+
+function isFeedQueueEmptyError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const m = error.message.toLowerCase();
+  if (m.includes("no items available")) return true;
+  if (m.includes("no items") && m.includes("feed")) return true;
+  if (error instanceof ApiError && error.status === 404) return true;
+  return false;
+}
 
 export default function SwipeScreen() {
   const logFeedEvent = useCallback(
@@ -168,95 +178,6 @@ export default function SwipeScreen() {
     setActiveFeedName(selectedFeed.name);
   }, [api]);
 
-  const resetAndLoadFeedCards = useCallback(async () => {
-    setFeedItems([]);
-    setCurrentCardIndex(0);
-    interactedItemIdsRef.current.clear();
-    setInteractionByItemId({});
-    await appendNextCard();
-    await appendNextCard();
-  }, [appendNextCard]);
-
-  const switchToFeed = useCallback(
-    async (feed: FeedDto) => {
-      try {
-        setCurrentFeed(feed.id);
-        setActiveFeedName(feed.name);
-        logFeedEvent("feed_switch", { nextFeedId: feed.id, nextFeedName: feed.name });
-        await resetAndLoadFeedCards();
-        setBootstrapError(null);
-        bottomSheetRef.current?.close();
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "Failed to switch feed";
-        setBootstrapError(message);
-      }
-    },
-    [logFeedEvent, resetAndLoadFeedCards]
-  );
-
-  useEffect(() => {
-    const selectedFeedId = Number(params.selectedFeedId);
-    if (!params.refreshKey || !Number.isFinite(selectedFeedId) || selectedFeedId <= 0) {
-      return;
-    }
-
-    const refreshAfterCreate = async () => {
-      const userId = getCurrentUserId();
-      if (!userId) return;
-
-      try {
-        const feeds = await api.getFeeds(userId);
-        setAvailableFeeds(feeds);
-        const selectedFeed = feeds.find((feed) => feed.id === selectedFeedId);
-        if (selectedFeed) {
-          await switchToFeed(selectedFeed);
-        }
-        setBootstrapError(null);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "Failed to refresh feeds";
-        setBootstrapError(message);
-      }
-    };
-
-    refreshAfterCreate();
-  }, [api, params.refreshKey, params.selectedFeedId, switchToFeed]);
-
-  const reconnectSessionRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    const key = params.reconnectKey;
-    if (!key || key === reconnectSessionRef.current) return;
-    reconnectSessionRef.current = key;
-
-    let cancelled = false;
-
-    const runReconnect = async () => {
-      try {
-        hasBootstrappedRef.current = false;
-        await bootstrapUserAndFeed();
-        if (cancelled) return;
-        await resetAndLoadFeedCards();
-        if (!cancelled) {
-          setBootstrapError(null);
-          reconnectSessionRef.current = null;
-          router.replace("/");
-        }
-      } catch (error) {
-        if (!cancelled) {
-          reconnectSessionRef.current = null;
-          const message =
-            error instanceof Error ? error.message : "Failed to reconnect demo session.";
-          setBootstrapError(message);
-        }
-      }
-    };
-
-    runReconnect();
-    return () => {
-      cancelled = true;
-    };
-  }, [params.reconnectKey, bootstrapUserAndFeed, resetAndLoadFeedCards]);
-
   const fetchNextCard = useCallback(async () => {
     const feedId = getCurrentFeedId();
     if (!feedId) {
@@ -282,6 +203,117 @@ export default function SwipeScreen() {
     });
     setFeedItems((prev) => [...prev, nextItem]);
   }, [fetchNextCard, logFeedEvent]);
+
+  const resetAndLoadFeedCards = useCallback(async (): Promise<boolean> => {
+    setFeedItems([]);
+    setCurrentCardIndex(0);
+    interactedItemIdsRef.current.clear();
+    setInteractionByItemId({});
+    try {
+      await appendNextCard();
+    } catch (error) {
+      if (isFeedQueueEmptyError(error)) {
+        setBootstrapError(
+          "No recommendations are in the queue for this feed yet. Try another feed from the menu, open feed settings, or ensure the backend catalog is stocked for this feed."
+        );
+        return true;
+      }
+      throw error;
+    }
+    try {
+      await appendNextCard();
+    } catch (error) {
+      if (!isFeedQueueEmptyError(error)) {
+        throw error;
+      }
+    }
+    return false;
+  }, [appendNextCard]);
+
+  const switchToFeed = useCallback(
+    async (feed: FeedDto) => {
+      try {
+        setCurrentFeed(feed.id);
+        setActiveFeedName(feed.name);
+        logFeedEvent("feed_switch", { nextFeedId: feed.id, nextFeedName: feed.name });
+        const queueEmpty = await resetAndLoadFeedCards();
+        if (!queueEmpty) {
+          setBootstrapError(null);
+        }
+        bottomSheetRef.current?.close();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Failed to switch feed";
+        setBootstrapError(message);
+      }
+    },
+    [logFeedEvent, resetAndLoadFeedCards]
+  );
+
+  useEffect(() => {
+    const selectedFeedId = Number(params.selectedFeedId);
+    if (!params.refreshKey || !Number.isFinite(selectedFeedId) || selectedFeedId <= 0) {
+      return;
+    }
+
+    const refreshAfterCreate = async () => {
+      const userId = getCurrentUserId();
+      if (!userId) return;
+
+      try {
+        const feeds = await api.getFeeds(userId);
+        setAvailableFeeds(feeds);
+        const selectedFeed = feeds.find((feed) => feed.id === selectedFeedId);
+        if (selectedFeed) {
+          await switchToFeed(selectedFeed);
+        } else {
+          setBootstrapError(null);
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Failed to refresh feeds";
+        setBootstrapError(message);
+      }
+    };
+
+    refreshAfterCreate();
+  }, [api, params.refreshKey, params.selectedFeedId, switchToFeed]);
+
+  const reconnectSessionRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const key = params.reconnectKey;
+    if (!key || key === reconnectSessionRef.current) return;
+    reconnectSessionRef.current = key;
+
+    let cancelled = false;
+
+    const runReconnect = async () => {
+      try {
+        hasBootstrappedRef.current = false;
+        await bootstrapUserAndFeed();
+        if (cancelled) return;
+        const queueEmpty = await resetAndLoadFeedCards();
+        if (!cancelled) {
+          if (!queueEmpty) {
+            setBootstrapError(null);
+          }
+          reconnectSessionRef.current = null;
+          router.replace("/");
+        }
+      } catch (error) {
+        if (!cancelled) {
+          reconnectSessionRef.current = null;
+          const message =
+            error instanceof Error ? error.message : "Failed to reconnect demo session.";
+          setBootstrapError(message);
+        }
+      }
+    };
+
+    runReconnect();
+    return () => {
+      cancelled = true;
+    };
+  }, [params.reconnectKey, bootstrapUserAndFeed, resetAndLoadFeedCards]);
 
   const submitInteraction = useCallback(
     async (type: "like" | "pass" | "save", opts?: { clear?: boolean }) => {
@@ -386,9 +418,11 @@ export default function SwipeScreen() {
       hasBootstrappedRef.current = true;
       try {
         await bootstrapUserAndFeed();
-        await resetAndLoadFeedCards();
+        const queueEmpty = await resetAndLoadFeedCards();
         if (!cancelled) {
-          setBootstrapError(null);
+          if (!queueEmpty) {
+            setBootstrapError(null);
+          }
           console.log("[GiftGenius API] user/feed bootstrap complete", {
             userId: getCurrentUserId(),
           });
@@ -428,8 +462,10 @@ export default function SwipeScreen() {
       setRefreshing(true);
       try {
         await bootstrapUserAndFeed();
-        await resetAndLoadFeedCards();
-        setBootstrapError(null);
+        const queueEmpty = await resetAndLoadFeedCards();
+        if (!queueEmpty) {
+          setBootstrapError(null);
+        }
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "Refresh failed";
@@ -672,11 +708,6 @@ export default function SwipeScreen() {
               }}
             />
           </View>
-          <View className="px-3 pb-1">
-            <Text className="text-xs text-zinc-500">
-              Scroll up to pass and advance. You can scroll back up to 5 cards.
-            </Text>
-          </View>
           {feedLoading ? (
             <View className="px-3 pb-2">
               <Text className="text-sm text-zinc-600">Loading next recommendation...</Text>
@@ -693,9 +724,9 @@ export default function SwipeScreen() {
             pointerEvents="none"
           />
         </View>
-        <View className="w-full flex-row items-center pt-6 pb-2 px-2">
+        <View className="w-full flex-row items-center px-2 pt-2 pb-1">
           <Pressable
-            className="flex-1 items-center py-2"
+            className="flex-1 items-center py-1"
             accessibilityRole="button"
             accessibilityLabel="Home"
             hitSlop={12}
@@ -706,26 +737,26 @@ export default function SwipeScreen() {
               }
             }}
           >
-            <House size={24} color="black" strokeWidth={1.5} />
+            <House size={22} color="black" strokeWidth={1.5} />
           </Pressable>
           <Link href="/bookmarks" asChild>
             <Pressable
-              className="flex-1 items-center py-2"
+              className="flex-1 items-center py-1"
               accessibilityRole="button"
               accessibilityLabel="Saved items"
               hitSlop={12}
             >
-              <Bookmark size={24} color="black" strokeWidth={1.5} />
+              <Bookmark size={22} color="black" strokeWidth={1.5} />
             </Pressable>
           </Link>
           <Link href="/profile" asChild>
             <Pressable
-              className="flex-1 items-center py-2"
+              className="flex-1 items-center py-1"
               accessibilityRole="button"
               accessibilityLabel="Profile"
               hitSlop={12}
             >
-              <CircleUserRound size={24} color="black" strokeWidth={1.5} />
+              <CircleUserRound size={22} color="black" strokeWidth={1.5} />
             </Pressable>
           </Link>
         </View>
