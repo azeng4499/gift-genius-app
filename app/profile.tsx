@@ -207,7 +207,6 @@ export default function ProfileScreen() {
             onPress={() => router.push("/feed/settings")}
           />
           <Row title="Add a feed person" subtitle="Create another recipient feed" onPress={() => router.push("/feed/new")} />
-          <Row title="Integration test screens" subtitle="Health checks and bootstrap" onPress={() => router.push("/test")} />
         </View>
 
         <Text className="mb-2 mt-8 text-xs font-medium uppercase tracking-wide text-zinc-400">

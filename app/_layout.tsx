@@ -33,10 +33,6 @@ export default function RootLayout() {
     <GestureHandlerRootView className="flex-1">
       <Stack>
         <Stack.Screen name="index" options={{ headerShown: false }} />
-        <Stack.Screen name="test/index" options={{ title: "Integration Tests" }} />
-        <Stack.Screen name="test/health" options={{ title: "Health Check" }} />
-        <Stack.Screen name="test/bootstrap" options={{ title: "User and Feed Setup" }} />
-        <Stack.Screen name="test/feed" options={{ title: "Feed Loop Tests" }} />
         <Stack.Screen name="feed/new" options={{ title: "Add Feed Person" }} />
         <Stack.Screen name="feed/settings" options={{ title: "Feed settings" }} />
         <Stack.Screen name="bookmarks" options={{ title: "Bookmarked Items" }} />

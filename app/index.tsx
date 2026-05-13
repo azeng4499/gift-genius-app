@@ -624,13 +624,6 @@ export default function SwipeScreen() {
             <SlidersHorizontal size={30} color="black" strokeWidth={1.5} />
           </Pressable>
         </View>
-        <View className="px-4 pb-2">
-          <Link href="/test" asChild>
-            <Pressable className="rounded-md border border-zinc-300 px-3 py-2">
-              <Text className="text-sm text-zinc-700">Open integration test screens</Text>
-            </Pressable>
-          </Link>
-        </View>
         <View className="px-4 pb-2 h-12">
           {actionMessage ? (
             <View className="rounded-md bg-zinc-100 px-3 py-2">
