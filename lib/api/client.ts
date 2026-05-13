@@ -203,6 +203,7 @@ export function createGiftGeniusApiClient(config: ApiClientConfig) {
       interests?: string[];
       budgetMin?: number;
       budgetMax?: number;
+      occasion?: string | null;
     }): Promise<FeedDto> {
       return request<FeedDto>("/feeds", {
         method: "POST",
@@ -219,6 +220,7 @@ export function createGiftGeniusApiClient(config: ApiClientConfig) {
         interests?: string[];
         budgetMin?: number | null;
         budgetMax?: number | null;
+        occasion?: string | null;
       }
     ): Promise<FeedDto> {
       return request<FeedDto>(`/feeds/${feedId}`, {

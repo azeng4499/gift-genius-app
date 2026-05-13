@@ -16,7 +16,7 @@ import { createGiftGeniusApiClient, type FeedDto } from "@/lib/api/client";
 import { getGiftGeniusApiBaseUrl } from "@/lib/api/config";
 import { LabeledFeedField } from "@/components/feed-form/labeled-feed-field";
 import { ReadOnlyInterestChip } from "@/components/feed-form/read-only-interest-chip";
-import { RELATIONSHIP_OPTIONS, mergeInterestLists } from "@/lib/feed-form-shared";
+import { RELATIONSHIP_OPTIONS, OCCASION_OPTIONS, mergeInterestLists } from "@/lib/feed-form-shared";
 import {
   getAccessToken,
   getCurrentFeedId,
@@ -35,6 +35,8 @@ export default function FeedSettingsScreen() {
   const [name, setName] = useState("");
   const [relationship, setRelationship] = useState("");
   const [relationshipOpen, setRelationshipOpen] = useState(false);
+  const [occasion, setOccasion] = useState("");
+  const [occasionOpen, setOccasionOpen] = useState(false);
   /** Loaded from API; shown read-only—not removable in this UI. */
   const [savedInterests, setSavedInterests] = useState<string[]>([]);
   /** Comma-separated interests to append on save. */
@@ -79,6 +81,7 @@ export default function FeedSettingsScreen() {
       setFeedSnapshot(feed);
       setName(feed.name);
       setRelationship(feed.relationship ?? "");
+      setOccasion(feed.occasion ?? "");
       setSavedInterests(feed.interests?.length ? [...feed.interests] : []);
       setNewInterestsText("");
       setBudgetMin(feed.budgetMin != null ? String(feed.budgetMin) : "");
@@ -125,6 +128,7 @@ export default function FeedSettingsScreen() {
       await api.updateFeed(feedId, {
         name: trimmedName,
         relationship: relationship.trim() || null,
+        occasion: occasion.trim() || null,
         interests: combinedInterests,
         budgetMin: minParsed,
         budgetMax: maxParsed,
@@ -165,7 +169,7 @@ export default function FeedSettingsScreen() {
           >
             <Text className="text-xl font-noto-serif-bold">Feed settings</Text>
             <Text className="text-sm text-zinc-600">
-              Update who this feed is for, interests, and budget. Saving returns you to swipes.
+              Update who this feed is for, occasion, interests, and budget. Saving returns you to swipes.
             </Text>
 
             <LabeledFeedField
@@ -213,6 +217,48 @@ export default function FeedSettingsScreen() {
                           }}
                         >
                           <Text className="text-zinc-900">{option}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                ) : null}
+              </View>
+            </LabeledFeedField>
+            <LabeledFeedField
+              label="Occasion"
+              hint="What you are shopping for—helps narrow gift ideas to the right context."
+            >
+              <View>
+                <Pressable
+                  className="rounded-md border border-zinc-300 px-3 py-2"
+                  accessibilityHint={occasionOpen ? undefined : "Opens choices"}
+                  accessibilityRole="button"
+                  accessibilityLabel="Occasion"
+                  onPress={() => setOccasionOpen((prev) => !prev)}
+                >
+                  <Text className={occasion ? "text-zinc-900" : "text-zinc-400"}>
+                    {occasion
+                      ? occasion.replace(/_/g, " ")
+                      : "Tap to choose (optional)"}
+                  </Text>
+                </Pressable>
+                {occasionOpen ? (
+                  <View className="mt-2 rounded-md border border-zinc-300 bg-white">
+                    {OCCASION_OPTIONS.map((option) => {
+                      const isSelected = occasion === option;
+                      return (
+                        <Pressable
+                          key={option}
+                          onPress={() => {
+                            setOccasion(option);
+                            setOccasionOpen(false);
+                          }}
+                          className="px-3 py-2"
+                          style={{
+                            backgroundColor: isSelected ? "rgba(31,122,92,0.08)" : "white",
+                          }}
+                        >
+                          <Text className="text-zinc-900">{option.replace(/_/g, " ")}</Text>
                         </Pressable>
                       );
                     })}

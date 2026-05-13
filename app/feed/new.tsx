@@ -10,12 +10,14 @@ import {
   setCurrentFeed,
 } from "@/lib/state/user-context";
 import { LabeledFeedField } from "@/components/feed-form/labeled-feed-field";
-import { RELATIONSHIP_OPTIONS, parseOptionalNumber } from "@/lib/feed-form-shared";
+import { RELATIONSHIP_OPTIONS, OCCASION_OPTIONS, parseOptionalNumber } from "@/lib/feed-form-shared";
 
 export default function NewFeedScreen() {
   const [name, setName] = useState("");
   const [relationship, setRelationship] = useState("");
   const [relationshipOpen, setRelationshipOpen] = useState(false);
+  const [occasion, setOccasion] = useState("");
+  const [occasionOpen, setOccasionOpen] = useState(false);
   const [interests, setInterests] = useState("");
   const [budgetMin, setBudgetMin] = useState("");
   const [budgetMax, setBudgetMax] = useState("");
@@ -56,6 +58,7 @@ export default function NewFeedScreen() {
         userId,
         name: trimmedName,
         relationship: relationship.trim() || undefined,
+        occasion: occasion.trim() || undefined,
         interests: parsedInterests.length > 0 ? parsedInterests : undefined,
         budgetMin: parseOptionalNumber(budgetMin),
         budgetMax: parseOptionalNumber(budgetMax),
@@ -132,6 +135,48 @@ export default function NewFeedScreen() {
                       }}
                     >
                       <Text className="text-zinc-900">{option}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : null}
+          </View>
+        </LabeledFeedField>
+        <LabeledFeedField
+          label="Occasion"
+          hint="What you are shopping for—helps narrow gift ideas to the right context."
+        >
+          <View>
+            <Pressable
+              className="rounded-md border border-zinc-300 px-3 py-2"
+              accessibilityHint={occasionOpen ? undefined : "Opens choices"}
+              accessibilityRole="button"
+              accessibilityLabel="Occasion"
+              onPress={() => setOccasionOpen((prev) => !prev)}
+            >
+              <Text className={occasion ? "text-zinc-900" : "text-zinc-400"}>
+                {occasion
+                  ? occasion.replace(/_/g, " ")
+                  : "Tap to choose (optional)"}
+              </Text>
+            </Pressable>
+            {occasionOpen ? (
+              <View className="mt-2 rounded-md border border-zinc-300 bg-white">
+                {OCCASION_OPTIONS.map((option) => {
+                  const isSelected = occasion === option;
+                  return (
+                    <Pressable
+                      key={option}
+                      onPress={() => {
+                        setOccasion(option);
+                        setOccasionOpen(false);
+                      }}
+                      className="px-3 py-2"
+                      style={{
+                        backgroundColor: isSelected ? "rgba(31,122,92,0.08)" : "white",
+                      }}
+                    >
+                      <Text className="text-zinc-900">{option.replace(/_/g, " ")}</Text>
                     </Pressable>
                   );
                 })}

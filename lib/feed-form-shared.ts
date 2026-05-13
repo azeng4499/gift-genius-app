@@ -20,6 +20,19 @@ export const RELATIONSHIP_OPTIONS = [
   "other",
 ] as const;
 
+export const OCCASION_OPTIONS = [
+  "birthday",
+  "holiday",
+  "christmas",
+  "graduation",
+  "wedding",
+  "anniversary",
+  "baby_shower",
+  "thank_you",
+  "just_because",
+  "other",
+] as const;
+
 /** Keeps every string in `base` (preserves order); appends new tokens from comma-separated `addedRaw`, case-insensitive dedupe vs base and prior adds. */
 export function mergeInterestLists(
   base: readonly string[],
