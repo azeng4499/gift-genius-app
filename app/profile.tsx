@@ -1,3 +1,4 @@
+import { useClerk } from "@clerk/clerk-expo";
 import { router } from "expo-router";
 import Constants from "expo-constants";
 import { ChevronRight, CircleUserRound } from "lucide-react-native";
@@ -29,6 +30,61 @@ function Row({ title, subtitle, onPress }: { title: string; subtitle?: string; o
         ) : null}
       </View>
       <ChevronRight size={20} color="#a1a1aa" />
+    </Pressable>
+  );
+}
+
+function SignOutRow() {
+  const { signOut } = useClerk();
+  const [signingOut, setSigningOut] = useState(false);
+
+  const handleSignOut = async () => {
+    setSigningOut(true);
+    try {
+      // Drop local app state first so AuthGate's redirect doesn't briefly
+      // remount the home screen with the previous user's id still cached.
+      clearUserContext();
+      await signOut();
+      // AuthGate (root layout) routes us to /(auth)/sign-in when
+      // isSignedIn flips to false; no router call needed here.
+    } catch (err) {
+      // signOut failed (e.g. offline). Clerk has already cleared local
+      // state optimistically, so the gate will still bounce us — but
+      // surface the issue so it isn't silent.
+      const message = err instanceof Error ? err.message : "Sign out failed.";
+      Alert.alert("Sign out had an issue", message);
+    } finally {
+      setSigningOut(false);
+    }
+  };
+
+  const confirmSignOut = () => {
+    Alert.alert(
+      "Sign out?",
+      "You'll need to sign back in to access your feeds.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Sign out", style: "destructive", onPress: handleSignOut },
+      ]
+    );
+  };
+
+  return (
+    <Pressable
+      onPress={confirmSignOut}
+      disabled={signingOut}
+      accessibilityRole="button"
+      accessibilityLabel="Sign out"
+      className="flex-row items-center justify-between py-4 active:bg-zinc-50"
+      style={{ opacity: signingOut ? 0.6 : 1 }}
+    >
+      <View className="mr-4 flex-1 shrink">
+        <Text className="text-base font-medium text-red-700">Sign out</Text>
+        <ThemedText className="mt-0.5 text-sm text-zinc-500">
+          Ends your session and clears tokens on this device.
+        </ThemedText>
+      </View>
+      {signingOut ? <ActivityIndicator color="#7f1d1d" /> : null}
     </Pressable>
   );
 }
@@ -98,27 +154,6 @@ export default function ProfileScreen() {
     }
   }, []);
 
-  const onReconnectDemo = () => {
-    Alert.alert(
-      "Reconnect demo session?",
-      "This clears cached user ID, feed ID, and token on this device, then signs you back in with the bundled demo flow.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Reconnect",
-          style: "destructive",
-          onPress: () => {
-            clearUserContext();
-            router.replace({
-              pathname: "/",
-              params: { reconnectKey: String(Date.now()) },
-            });
-          },
-        },
-      ]
-    );
-  };
-
   return (
     <SafeAreaView className="flex-1 bg-white" edges={["bottom"]}>
       <ScrollView className="flex-1 px-4" keyboardShouldPersistTaps="handled">
@@ -136,27 +171,6 @@ export default function ProfileScreen() {
           <View className="items-center justify-center py-10">
             <ActivityIndicator />
             <Text className="mt-3 text-zinc-500">Loading …</Text>
-          </View>
-        ) : null}
-
-        {!loading && getCurrentUserId() == null ? (
-          <View className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4">
-            <Text className="text-sm font-medium text-amber-900">No active session</Text>
-            <ThemedText className="mt-1 text-sm text-amber-800">
-              Run Reconnect demo session to log in again, or pull to refresh on the home tab if you landed here without
-              bootstrap.
-            </ThemedText>
-            <Pressable
-              className="mt-3 rounded-md bg-amber-900 px-4 py-2"
-              onPress={() =>
-                router.replace({
-                  pathname: "/",
-                  params: { reconnectKey: String(Date.now()) },
-                })
-              }
-            >
-              <Text className="text-center text-white">Reconnect demo session</Text>
-            </Pressable>
           </View>
         ) : null}
 
@@ -210,17 +224,10 @@ export default function ProfileScreen() {
         </View>
 
         <Text className="mb-2 mt-8 text-xs font-medium uppercase tracking-wide text-zinc-400">
-          Demo toolkit
+          Account
         </Text>
         <View className="rounded-xl border border-zinc-200 px-4">
-          <Pressable onPress={onReconnectDemo} className="flex-row items-center justify-between py-4 active:bg-zinc-50">
-            <View className="mr-4 flex-1 shrink">
-              <Text className="text-base font-medium text-zinc-900">Clear and reconnect session</Text>
-              <ThemedText className="mt-0.5 text-sm text-zinc-500">
-                Drops local IDs and runs the bundled login again.
-              </ThemedText>
-            </View>
-          </Pressable>
+          <SignOutRow />
         </View>
 
         <View className="mt-10 mb-10 items-center gap-1">
