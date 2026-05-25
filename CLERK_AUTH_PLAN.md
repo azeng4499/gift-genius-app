@@ -788,7 +788,7 @@ Each phase leaves the app in a working state.
 | 2     | **[done]**        | Token helper + async client wired; no call sites switched over yet.  |
 | 3     | **[not started]** | Backend work in `giftgenius-engine`. Blocks Phase 4.                 |
 | 4     | **[blocked]**     | Waits on Phase 3 (`GET /me`, `verifyToken`).                         |
-| 5     | **[partial]**     | Social sign-in (§4.10) done. Password reset / 401 sign-out pending.  |
+| 5     | **[partial]**     | Social sign-in + password reset shipped. 401 sign-out / email change pending. |
 
 ### Phase 0 — Prep (no user-visible change) — **[done]**
 
@@ -857,7 +857,11 @@ Each phase leaves the app in a working state.
 
 - **[done]** Social sign-in (Google + Apple) via browser-based `useSSO` —
   see §4.10. App Store rule 4.8 satisfied; native UI upgrade deferred.
-- Password reset (Clerk `useSignIn().create({ strategy: "reset_password_email_code" })`).
+- **[done]** Password reset via `useSignIn().create({ strategy: "reset_password_email_code" })`
+  + `attemptFirstFactor` two-step flow. New screen at
+  `app/(auth)/forgot-password.tsx`; "Forgot password?" link under the
+  password field on sign-in. Reuses Clerk-managed code email, no
+  custom-email backend.
 - Email change in `profile.tsx` via `useUser().createEmailAddress`.
 - Optional: organizations / shared feeds (Clerk Organizations).
 - Auto sign-out on 401 from `request()` (see §4.9.4).
@@ -872,8 +876,9 @@ with remaining work called out, `[blocked]` waiting on another phase.
 ```
 app/_layout.tsx             [done]     ClerkProvider + AuthGate (Phase 1) + BindToken (Phase 2)
 app/(auth)/_layout.tsx      [done]     headerless Stack; redirects live in root AuthGate
-app/(auth)/sign-in.tsx      [done]     useSignIn email+password + <SsoButton> Apple/Google (§4.10)
+app/(auth)/sign-in.tsx      [done]     useSignIn email+password + <SsoButton> Apple/Google (§4.10) + Forgot password link
 app/(auth)/sign-up.tsx      [done]     useSignUp + email-code + <SsoButton> in non-verification branch
+app/(auth)/forgot-password.tsx [done]  reset_password_email_code two-step flow (Phase 5)
 app/(protected)/_layout.tsx [pending]  Phase 4: replaces AuthGate once protected files move
 components/auth/sso-button.tsx [done]  shared <SsoButton strategy="oauth_apple|oauth_google" /> (§4.10)
 app/index.tsx               [pending]  Phase 4: bootstrap via GET /me, drop loginWithEmail
@@ -886,6 +891,7 @@ lib/state/user-context.ts   [pending]  Phase 4: remove accessToken; keep userId 
 src/app/(auth)/_layout.tsx  [done]     re-export bridge
 src/app/(auth)/sign-in.tsx  [done]     re-export bridge
 src/app/(auth)/sign-up.tsx  [done]     re-export bridge
+src/app/(auth)/forgot-password.tsx [done] re-export bridge
 
 .env.local                  [done]     EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY
 

@@ -97,6 +97,15 @@ export default function SignInScreen() {
           />
         </LabeledFeedField>
 
+        <View className="flex-row justify-end">
+          <Link
+            href="/(auth)/forgot-password"
+            className="text-sm text-zinc-700 underline"
+          >
+            Forgot password?
+          </Link>
+        </View>
+
         {error ? <Text className="text-sm text-red-600">{error}</Text> : null}
 
         <Pressable
