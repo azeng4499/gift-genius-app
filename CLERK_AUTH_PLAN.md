@@ -844,10 +844,10 @@ Each phase leaves the app in a working state.
 3. **[done]** Replace the **Clear and reconnect** profile action with
    **Sign out** per §4.9 — `useClerk().signOut()` + `clearUserContext()` +
    rely on `AuthGate` for the redirect. The dead "No active session"
-   banner was dropped at the same time. **Still pending in this step:**
-   remove the `api.getUsers()` lookup in `reload` (paired with the
-   `useUser()` header swap in §4.9.3, deferred until we wire Clerk
-   identity on the profile screen).
+   banner was dropped, the `api.getUsers()` lookup in `reload` was
+   removed, and §4.9.3 shipped: header now shows Clerk's `useUser()`
+   identity (`fullName` / `primaryEmailAddress` / `imageUrl` avatar)
+   with a `CircleUserRound` fallback.
 4. Delete `POST /auth/login` usage everywhere on the frontend.
 5. Physically move protected screens into `app/(protected)/` (and recreate the
    matching `src/app/(protected)/` bridges); replace `AuthGate` in
@@ -877,7 +877,7 @@ app/(auth)/sign-up.tsx      [done]     useSignUp + email-code + <SsoButton> in n
 app/(protected)/_layout.tsx [pending]  Phase 4: replaces AuthGate once protected files move
 components/auth/sso-button.tsx [done]  shared <SsoButton strategy="oauth_apple|oauth_google" /> (§4.10)
 app/index.tsx               [pending]  Phase 4: bootstrap via GET /me, drop loginWithEmail
-app/profile.tsx             [partial]  Sign out shipped (§4.9.2). Pending: useUser header (§4.9.3) + drop api.getUsers()
+app/profile.tsx             [done]     Sign out (§4.9.2) + useUser header (§4.9.3); api.getUsers() removed
 
 lib/api/client.ts           [partial]  Phase 2 widened getAccessToken to async; Phase 4 drops loginWithEmail
 lib/api/token.ts            [done]     registerClerkTokenGetter / getClerkToken

@@ -1,14 +1,22 @@
-import { useClerk } from "@clerk/clerk-expo";
+import { useClerk, useUser } from "@clerk/clerk-expo";
 import { router } from "expo-router";
 import Constants from "expo-constants";
 import { ChevronRight, CircleUserRound } from "lucide-react-native";
 import { useCallback, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, Pressable, ScrollView, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Alert,
+  Image,
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+} from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { ThemedText } from "@/components/themed-text";
-import { createGiftGeniusApiClient, type UserDto } from "@/lib/api/client";
+import { createGiftGeniusApiClient } from "@/lib/api/client";
 import { getGiftGeniusApiBaseUrl } from "@/lib/api/config";
 import {
   clearUserContext,
@@ -90,6 +98,7 @@ function SignOutRow() {
 }
 
 export default function ProfileScreen() {
+  const { user } = useUser();
   const api = useMemo(
     () =>
       createGiftGeniusApiClient({
@@ -100,7 +109,6 @@ export default function ProfileScreen() {
     []
   );
 
-  const [userProfile, setUserProfile] = useState<UserDto | null>(null);
   const [currentFeedSummary, setCurrentFeedSummary] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -109,7 +117,6 @@ export default function ProfileScreen() {
     const uid = getCurrentUserId();
     const fid = getCurrentFeedId();
     if (!uid) {
-      setUserProfile(null);
       setCurrentFeedSummary(null);
       setLoadError(null);
       setLoading(false);
@@ -120,16 +127,12 @@ export default function ProfileScreen() {
     setLoadError(null);
     try {
       const feeds = await api.getFeeds(uid);
-      const users = await api.getUsers();
-      const me = users.find((u) => u.id === uid) ?? null;
-      setUserProfile(me);
       const current = fid ? feeds.find((f) => f.id === fid) : null;
       setCurrentFeedSummary(
         current ? `${current.name} (#${current.id})` : feeds.length ? `${feeds.length} feeds` : "No feeds"
       );
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : "Could not load profile.");
-      setUserProfile(null);
       setCurrentFeedSummary(null);
     } finally {
       setLoading(false);
@@ -158,13 +161,25 @@ export default function ProfileScreen() {
     <SafeAreaView className="flex-1 bg-white" edges={["bottom"]}>
       <ScrollView className="flex-1 px-4" keyboardShouldPersistTaps="handled">
         <View className="items-center pb-4 pt-2">
-          <View className="mb-3 h-20 w-20 items-center justify-center rounded-full bg-zinc-100">
-            <CircleUserRound size={44} color="#52525b" strokeWidth={1.5} />
+          <View className="mb-3 h-20 w-20 items-center justify-center overflow-hidden rounded-full bg-zinc-100">
+            {user?.imageUrl ? (
+              <Image
+                source={{ uri: user.imageUrl }}
+                className="h-20 w-20"
+                accessibilityIgnoresInvertColors
+              />
+            ) : (
+              <CircleUserRound size={44} color="#52525b" strokeWidth={1.5} />
+            )}
           </View>
-          <Text className="font-noto-serif-bold text-xl text-zinc-900">Demo profile</Text>
-          <ThemedText className="mt-1 max-w-xs text-center text-sm text-zinc-500">
-            One built-in GiftGenius user on this phone—use shortcuts below to tweak feeds or debug the API.
-          </ThemedText>
+          <Text className="font-noto-serif-bold text-xl text-zinc-900">
+            {user?.fullName ?? user?.primaryEmailAddress?.emailAddress ?? "Signed in"}
+          </Text>
+          {user?.fullName && user?.primaryEmailAddress?.emailAddress ? (
+            <ThemedText className="mt-1 text-sm text-zinc-500">
+              {user.primaryEmailAddress.emailAddress}
+            </ThemedText>
+          ) : null}
         </View>
 
         {loading ? (
@@ -183,16 +198,12 @@ export default function ProfileScreen() {
           </View>
         ) : null}
 
-        {!loading && userProfile ? (
+        {!loading && getCurrentUserId() != null ? (
           <View className="mb-6 rounded-xl border border-zinc-200 p-4">
-            <Text className="font-noto-serif-bold text-lg text-zinc-900">{userProfile.name}</Text>
-            {userProfile.email ? (
-              <ThemedText className="mt-1 text-sm text-zinc-600">{userProfile.email}</ThemedText>
-            ) : null}
-            <View className="mt-4 gap-2 border-t border-zinc-100 pt-4">
+            <View className="gap-2">
               <View className="flex-row justify-between">
                 <ThemedText className="text-sm text-zinc-500">User ID</ThemedText>
-                <Text className="text-sm text-zinc-900">{userProfile.id}</Text>
+                <Text className="text-sm text-zinc-900">{getCurrentUserId()}</Text>
               </View>
               <View className="flex-row justify-between">
                 <ThemedText className="text-sm text-zinc-500">Current feed</ThemedText>
