@@ -87,12 +87,16 @@ type RequestOptions = {
   retries?: number;
 };
 
+type AccessTokenValue = string | null | undefined;
+
 type ApiClientConfig = {
   baseUrl: string;
   // Used for feed-scoped routes requiring ownership checks.
   getUserId?: () => number | null | undefined;
-  // Used when backend requires Bearer auth on secured routes.
-  getAccessToken?: () => string | null | undefined;
+  // Used when backend requires Bearer auth on secured routes. May return a
+  // string synchronously (legacy demo bearer cached in user-context) or a
+  // Promise (Clerk JWT fetched on demand via `getClerkToken`).
+  getAccessToken?: () => AccessTokenValue | Promise<AccessTokenValue>;
   defaultRetries?: number;
 };
 
@@ -109,7 +113,7 @@ export function createGiftGeniusApiClient(config: ApiClientConfig) {
 
     if (opts.requiresAuth) {
       const userId = config.getUserId?.();
-      const accessToken = config.getAccessToken?.();
+      const accessToken = await config.getAccessToken?.();
 
       if (accessToken) {
         headers.authorization = `Bearer ${accessToken}`;

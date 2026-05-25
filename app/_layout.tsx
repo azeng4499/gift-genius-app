@@ -6,6 +6,8 @@ import { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import "react-native-reanimated";
 
+import { registerClerkTokenGetter } from "@/lib/api/token";
+
 import "../global.css";
 import "../lib/nativewind-interop";
 
@@ -14,6 +16,14 @@ if (!publishableKey) {
   throw new Error(
     "Missing EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY. Add it to .env.local."
   );
+}
+
+function BindToken() {
+  const { getToken } = useAuth();
+  useEffect(() => {
+    registerClerkTokenGetter(async () => (await getToken()) ?? null);
+  }, [getToken]);
+  return null;
 }
 
 function AuthGate() {
@@ -70,6 +80,7 @@ export default function RootLayout() {
 
   return (
     <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache}>
+      <BindToken />
       <GestureHandlerRootView className="flex-1">
         <AuthGate />
       </GestureHandlerRootView>

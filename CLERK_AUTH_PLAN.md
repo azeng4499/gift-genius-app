@@ -573,38 +573,63 @@ removing `x-user-id` means we no longer need to send that header.
 
 Each phase leaves the app in a working state.
 
-### Phase 0 — Prep (no user-visible change)
+### Status snapshot (last updated: 2026-05-25)
 
-1. Create a Clerk application in the dashboard.
-2. Enable **Native API** (required for `@clerk/clerk-expo`).
-3. Enable **email + password** and **email code** verification.
-4. Copy publishable key into `.env.local`.
+| Phase | Status            | Notes                                                                |
+| ----- | ----------------- | -------------------------------------------------------------------- |
+| 0     | **[done]**        | Clerk app created, `pk_test_…` in `.env.local`.                      |
+| 1     | **[done]**        | Frontend shell shipped; demo bootstrap still active.                 |
+| 2     | **[done]**        | Token helper + async client wired; no call sites switched over yet.  |
+| 3     | **[not started]** | Backend work in `giftgenius-engine`. Blocks Phase 4.                 |
+| 4     | **[blocked]**     | Waits on Phase 3 (`GET /me`, `verifyToken`).                         |
+| 5     | **[not started]** | Polish; can ship any time after Phase 4.                             |
 
-### Phase 1 — Frontend Clerk shell, mock backend
+### Phase 0 — Prep (no user-visible change) — **[done]**
 
-1. Install `@clerk/clerk-expo` and `expo-secure-store`.
-2. Add `ClerkProvider` + `tokenCache` in `app/_layout.tsx`.
+1. Create a Clerk application in the dashboard. **[done]**
+2. Enable **Native API** (required for `@clerk/clerk-expo`). **[done]**
+3. Enable **email + password** and **email code** verification. **[done]**
+4. Copy publishable key into `.env.local`. **[done]** —
+   `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_d2VhbHRoeS1mbGFtaW5nby00Mi5jbGVyay5hY2NvdW50cy5kZXYk`
+   (development instance).
+
+### Phase 1 — Frontend Clerk shell, mock backend — **[done]**
+
+1. Install `@clerk/clerk-expo` and `expo-secure-store`. **[done]** — also
+   pinned `expo-crypto@~15.0.9` and `expo-auth-session@~7.0.11` at top level
+   to fix a transitive `ExpoCryptoAES` native-module mismatch (Clerk's loose
+   peer ranges pulled in v56 packages that target a future Expo SDK).
+2. Add `ClerkProvider` + `tokenCache` in `app/_layout.tsx`. **[done]**
 3. Create `(auth)/_layout.tsx`, `(auth)/sign-in.tsx`, `(auth)/sign-up.tsx`.
+   **[done]** — plus matching `src/app/(auth)/` bridges
+   (`_layout.tsx`, `sign-in.tsx`, `sign-up.tsx`).
 4. Add the `AuthGate` component (§4.4 option b) in `app/_layout.tsx`. Protected
-   files stay where they are — no physical move in this phase.
+   files stay where they are — no physical move in this phase. **[done]**
 5. Keep the backend as-is and **temporarily** continue using the demo
    bootstrap so feeds still load. This lets us validate the auth UX
-   independently.
+   independently. **[done]**
 
-### Phase 2 — Wire Clerk JWT into the API client
+### Phase 2 — Wire Clerk JWT into the API client — **[done]**
 
-1. Add `lib/api/token.ts` + `BindToken` component.
+1. Add `lib/api/token.ts` + `BindToken` component. **[done]** — `BindToken`
+   lives next to `AuthGate` inside `<ClerkProvider>` and registers
+   `() => (await getToken()) ?? null` once.
 2. Widen `getAccessToken` in `lib/api/client.ts` to support async returns.
+   **[done]** — `AccessTokenValue | Promise<AccessTokenValue>`; `request()`
+   awaits the call.
 3. Confirm secured routes still work (the backend will accept the demo
-   token until we cut it over).
+   token until we cut it over). **[done]** — no call sites point at
+   `getClerkToken` yet; all three still pass the demo bearer.
 
-### Phase 3 — Backend integration
+### Phase 3 — Backend integration — **[not started]**
+
+> Lives in the `giftgenius-engine` repo, not this one.
 
 1. Implement `verifyToken` + `GET /me` in `giftgenius-engine`.
 2. Add migration to add `clerk_user_id` to `users`.
 3. Switch protected routes to use `request.auth.clerkUserId`.
 
-### Phase 4 — Frontend cutover
+### Phase 4 — Frontend cutover — **[blocked on Phase 3]**
 
 1. Replace `bootstrapUserAndFeed` to call `GET /me` instead of
    `getUsers + loginWithEmail`.
@@ -619,45 +644,52 @@ Each phase leaves the app in a working state.
    matching `src/app/(protected)/` bridges); replace `AuthGate` in
    `app/_layout.tsx` with a `(protected)/_layout.tsx` that uses `<Redirect>`.
 
-### Phase 5 — Polish
+### Phase 5 — Polish — **[not started]**
 
 - Password reset (Clerk `useSignIn().create({ strategy: "reset_password_email_code" })`).
 - Email change in `profile.tsx` via `useUser().createEmailAddress`.
 - Social sign-in (move to JS + Native or Native Components if desired).
 - Optional: organizations / shared feeds (Clerk Organizations).
+- Auto sign-out on 401 from `request()` (see §4.9.4).
 
 ---
 
 ## 7. File-by-file checklist
 
-```
-app/_layout.tsx             [edit]   wrap in <ClerkProvider>, add AuthGate (Phase 1), register token getter (Phase 2)
-app/(auth)/_layout.tsx      [new]    redirect signed-in users to /
-app/(auth)/sign-in.tsx      [new]    useSignIn flow
-app/(auth)/sign-up.tsx      [new]    useSignUp + email-code verification
-app/(protected)/_layout.tsx [new]    Phase 4: replaces AuthGate once files move
-app/index.tsx               [edit]   bootstrap via GET /me, drop loginWithEmail
-app/profile.tsx             [edit]   Clerk user via useUser, Sign out via useClerk().signOut() + clearUserContext (§4.9)
-
-lib/api/client.ts           [edit]   async getAccessToken, drop loginWithEmail
-lib/api/token.ts            [new]    registerClerkTokenGetter / getClerkToken
-lib/state/user-context.ts   [edit]   remove accessToken; keep userId / feedId
-
-src/app/(auth)/_layout.tsx  [new]    re-export bridge
-src/app/(auth)/sign-in.tsx  [new]    re-export bridge
-src/app/(auth)/sign-up.tsx  [new]    re-export bridge
-
-.env.local                  [edit]   EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY
-```
-
-Backend (separate repo):
+Status legend: `[done]` shipped, `[pending]` not yet, `[partial]` partly done
+with remaining work called out, `[blocked]` waiting on another phase.
 
 ```
-users migration             [new]    add clerk_user_id unique index
-clerk auth plugin           [new]    verifyToken middleware
-routes/me.ts                [new]    GET /me upserts + returns user/feeds
-routes/feeds.ts             [edit]   use request.auth.clerkUserId
-routes/auth.ts              [drop]   remove /auth/login (or 410)
+app/_layout.tsx             [done]     ClerkProvider + AuthGate (Phase 1) + BindToken (Phase 2)
+app/(auth)/_layout.tsx      [done]     headerless Stack; redirects live in root AuthGate
+app/(auth)/sign-in.tsx      [done]     useSignIn email+password flow
+app/(auth)/sign-up.tsx      [done]     useSignUp + email-code verification
+app/(protected)/_layout.tsx [pending]  Phase 4: replaces AuthGate once protected files move
+app/index.tsx               [pending]  Phase 4: bootstrap via GET /me, drop loginWithEmail
+app/profile.tsx             [pending]  Phase 4: useUser header, Sign out via signOut() + clearUserContext (§4.9)
+
+lib/api/client.ts           [partial]  Phase 2 widened getAccessToken to async; Phase 4 drops loginWithEmail
+lib/api/token.ts            [done]     registerClerkTokenGetter / getClerkToken
+lib/state/user-context.ts   [pending]  Phase 4: remove accessToken; keep userId / feedId
+
+src/app/(auth)/_layout.tsx  [done]     re-export bridge
+src/app/(auth)/sign-in.tsx  [done]     re-export bridge
+src/app/(auth)/sign-up.tsx  [done]     re-export bridge
+
+.env.local                  [done]     EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY
+
+package.json                [done]     +@clerk/clerk-expo, +expo-secure-store, +expo-crypto, +expo-auth-session
+app.json                    [done]     expo-secure-store config plugin auto-added
+```
+
+Backend (separate repo, all blocked on Phase 3):
+
+```
+users migration             [pending]  add clerk_user_id unique index
+clerk auth plugin           [pending]  verifyToken middleware
+routes/me.ts                [pending]  GET /me upserts + returns user/feeds
+routes/feeds.ts             [pending]  use request.auth.clerkUserId
+routes/auth.ts              [pending]  drop /auth/login (or 410)
 ```
 
 ---
