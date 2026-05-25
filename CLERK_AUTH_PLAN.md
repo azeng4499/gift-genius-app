@@ -512,6 +512,212 @@ Phase 4 drops the local access token; until then it's accurate.
    but app still ends up on sign-in (local state is cleared
    optimistically).
 
+### 4.10 Social sign-in (Google + Apple) — Phase 5 expansion
+
+When we expand beyond email/password, we add **Continue with Google** and
+**Continue with Apple** buttons to `app/(auth)/sign-in.tsx` and
+`app/(auth)/sign-up.tsx`. Both providers go through the same hook, so it's
+one implementation reused twice.
+
+#### 4.10.1 Approach: browser-based `useSSO`
+
+Stays on the **JavaScript / browser** approach we chose in §2, so the app
+keeps running in Expo Go. The hook is `useSSO` from `@clerk/clerk-expo`
+(`useOAuth` is `@deprecated` in the same package; we use `useSSO`).
+
+The flow:
+
+```
+tap "Continue with Google"
+  → useSSO().startSSOFlow({ strategy: "oauth_google", redirectUrl })
+    → expo-web-browser opens system browser at Clerk's OAuth URL
+      → Google sign-in page → user consents
+        → Clerk catches the OAuth callback server-side
+          → browser redirects back to the app via `giftgeniusapp://oauth-callback`
+            → startSSOFlow resolves with { createdSessionId, setActive, … }
+              → setActive({ session: createdSessionId })
+                → AuthGate sees isSignedIn=true, replaces to "/"
+```
+
+Apple sign-in is identical with `strategy: "oauth_apple"`. No native UI
+sheet, no app rebuild, no extra native modules beyond what we already
+have (`expo-web-browser`, `expo-auth-session`, `expo-crypto`,
+`expo-linking` — all shipped in Phase 1).
+
+#### 4.10.2 Prerequisites — Clerk dashboard
+
+1. **Social Connections → Google → enable.** Clerk's dev instance has
+   shared OAuth credentials, so this works immediately for development.
+   For production: create a Google Cloud OAuth 2.0 Client ID and paste its
+   Client ID + Secret into Clerk. Authorized redirect URI is the one Clerk
+   shows on the configuration page (looks like
+   `https://wealthy-flamingo-42.clerk.accounts.dev/v1/oauth_callback`).
+2. **Social Connections → Apple → enable.** Same flow. Production needs an
+   Apple Developer account, a Services ID, and a private key from
+   [developer.apple.com](https://developer.apple.com). Clerk's docs walk
+   through it; budget ~30 minutes the first time.
+3. **Allowed origins / redirect schemes.** Add `giftgeniusapp://` to
+   Clerk's allowed redirect URIs (Dashboard → Native Applications →
+   Authorized redirect URLs). Expo Go's dev scheme `exp://` is allowed by
+   Clerk by default for `pk_test_` instances.
+
+`app.json` already has `"scheme": "giftgeniusapp"` from the original Expo
+setup, so the deep-link side is ready.
+
+#### 4.10.3 Code — a shared `SsoButton` and two consumers
+
+New file at `components/auth/sso-button.tsx` (not inside `app/(auth)/`,
+because Expo Router would register any non-`_layout` file there as a
+route). Skeleton:
+
+```tsx
+// components/auth/sso-button.tsx
+import { useSSO } from "@clerk/clerk-expo";
+import * as Linking from "expo-linking";
+import * as WebBrowser from "expo-web-browser";
+import { useState } from "react";
+import { Pressable, Text, ActivityIndicator } from "react-native";
+
+// MUST run at module top so the browser session completes correctly when
+// the user is bounced back via the deep link.
+WebBrowser.maybeCompleteAuthSession();
+
+type Strategy = "oauth_google" | "oauth_apple";
+
+export function SsoButton({
+  strategy,
+  label,
+  onError,
+}: {
+  strategy: Strategy;
+  label: string;
+  onError?: (message: string) => void;
+}) {
+  const { startSSOFlow } = useSSO();
+  const [busy, setBusy] = useState(false);
+
+  const onPress = async () => {
+    setBusy(true);
+    try {
+      const { createdSessionId, setActive } = await startSSOFlow({
+        strategy,
+        // Use Expo Linking so this works in both Expo Go (`exp://…`) and
+        // a future production binary (`giftgeniusapp://oauth-callback`).
+        redirectUrl: Linking.createURL("oauth-callback"),
+      });
+      if (createdSessionId && setActive) {
+        await setActive({ session: createdSessionId });
+        // AuthGate handles routing to "/"
+      }
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : "Sign-in was cancelled.";
+      onError?.(message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={busy}
+      className="rounded-md border border-zinc-300 px-4 py-3"
+      style={{ opacity: busy ? 0.6 : 1 }}
+    >
+      {busy ? (
+        <ActivityIndicator color="#18181b" />
+      ) : (
+        <Text className="text-center text-zinc-900">{label}</Text>
+      )}
+    </Pressable>
+  );
+}
+```
+
+Drop it into the existing email/password forms, above the divider:
+
+```tsx
+// app/(auth)/sign-in.tsx (additive — keeps useSignIn flow intact)
+import { SsoButton } from "@/components/auth/sso-button";
+
+// inside the screen body, above the email input:
+<View className="gap-2">
+  <SsoButton strategy="oauth_apple"  label="Continue with Apple"  onError={setError} />
+  <SsoButton strategy="oauth_google" label="Continue with Google" onError={setError} />
+</View>
+<View className="my-2 flex-row items-center gap-2">
+  <View className="h-px flex-1 bg-zinc-200" />
+  <Text className="text-xs uppercase tracking-wide text-zinc-400">or</Text>
+  <View className="h-px flex-1 bg-zinc-200" />
+</View>
+```
+
+Same two buttons + divider on `sign-up.tsx`. `useSignUp`'s email-code flow
+stays untouched for users who pick the email path.
+
+#### 4.10.4 App Store rule 4.8 — Apple sign-in is non-optional on iOS
+
+If we ship **any** third-party social sign-in on iOS (Google, Facebook,
+Microsoft, etc.), Apple's [App Store Review Guideline 4.8](https://developer.apple.com/app-store/review/guidelines/#sign-in-with-apple)
+requires **Sign in with Apple** as an equivalent option. The
+browser-based `oauth_apple` strategy in `useSSO` satisfies this
+requirement — Apple accepts the OAuth web flow for compliance. It's not
+the most polished UX (browser sheet vs. native Face ID prompt), but it
+ships from Expo Go without a dev build.
+
+We can ship browser-based Apple first, then optionally upgrade to the
+native UI (§4.10.5) once we're committing to dev builds anyway.
+
+Android has no equivalent requirement, so Apple is iOS-only by display
+order: hide the Apple button on Android via `Platform.OS === "ios"`
+unless we want a consistent button stack across both platforms (no harm
+in keeping it shown on Android — Clerk's OAuth flow still works).
+
+#### 4.10.5 Upgrade path to native UI (later, requires dev build)
+
+Currently we keep using browser-based OAuth because it's the only path
+that works in Expo Go. Two upgrade tiers when we eventually move to a dev
+build:
+
+1. **Native Sign in with Apple** — install `expo-apple-authentication` +
+   keep `expo-crypto` (we already have it), then call the
+   `useSignInWithApple` hook that `@clerk/clerk-expo` ships
+   (`node_modules/@clerk/clerk-expo/dist/hooks/useSignInWithApple.js`).
+   That uses Apple's native ASAuthorizationController under the hood,
+   no browser. Google can stay browser-based.
+2. **Native components for everything** — migrate from
+   `@clerk/clerk-expo` to `@clerk/expo` (the new package) and use
+   `<AuthView mode="signInOrUp" />` from `@clerk/expo/native`. SwiftUI on
+   iOS, Jetpack Compose on Android. Requires SDK 53+, which we already
+   meet (SDK 54). Replaces our custom email/password screens entirely,
+   so this is a bigger lift — not worth doing just for OAuth, but worth
+   it if we want the native UX across the whole auth flow.
+
+Both upgrades preserve `useAuth`, `useUser`, `signOut`, the AuthGate, and
+all of Phase 2's token wiring. The only thing that changes is what
+renders the sign-in screen.
+
+#### 4.10.6 Manual test plan additions
+
+Append to §8:
+
+- **Google happy path**: tap Continue with Google on sign-in → consent in
+  browser → land on `/`. Confirm `useUser().externalAccounts` lists the
+  Google account.
+- **Apple happy path** (iOS only): same, with Continue with Apple.
+- **Cancel browser**: tap Google → close browser sheet without signing
+  in → returns to sign-in screen with no error toast (cancellation isn't
+  an error).
+- **Cross-flow continuity**: sign up with email/password, sign out, sign
+  in again with the same email via Google → Clerk should link the
+  accounts automatically if the verified email matches. If linking is
+  off in the dashboard, expect a "this email is already in use" error
+  surfaced from `startSSOFlow`.
+- **Existing demo session**: after signing in via OAuth, confirm the
+  demo bootstrap on `/` still loads (until Phase 4 cuts it over to
+  `GET /me`).
+
 ---
 
 ## 5. Backend changes (`giftgenius-engine`)
@@ -582,7 +788,7 @@ Each phase leaves the app in a working state.
 | 2     | **[done]**        | Token helper + async client wired; no call sites switched over yet.  |
 | 3     | **[not started]** | Backend work in `giftgenius-engine`. Blocks Phase 4.                 |
 | 4     | **[blocked]**     | Waits on Phase 3 (`GET /me`, `verifyToken`).                         |
-| 5     | **[not started]** | Polish; can ship any time after Phase 4.                             |
+| 5     | **[partial]**     | Social sign-in (§4.10) done. Password reset / 401 sign-out pending.  |
 
 ### Phase 0 — Prep (no user-visible change) — **[done]**
 
@@ -644,11 +850,12 @@ Each phase leaves the app in a working state.
    matching `src/app/(protected)/` bridges); replace `AuthGate` in
    `app/_layout.tsx` with a `(protected)/_layout.tsx` that uses `<Redirect>`.
 
-### Phase 5 — Polish — **[not started]**
+### Phase 5 — Polish — **[partial]**
 
+- **[done]** Social sign-in (Google + Apple) via browser-based `useSSO` —
+  see §4.10. App Store rule 4.8 satisfied; native UI upgrade deferred.
 - Password reset (Clerk `useSignIn().create({ strategy: "reset_password_email_code" })`).
 - Email change in `profile.tsx` via `useUser().createEmailAddress`.
-- Social sign-in (move to JS + Native or Native Components if desired).
 - Optional: organizations / shared feeds (Clerk Organizations).
 - Auto sign-out on 401 from `request()` (see §4.9.4).
 
@@ -662,9 +869,10 @@ with remaining work called out, `[blocked]` waiting on another phase.
 ```
 app/_layout.tsx             [done]     ClerkProvider + AuthGate (Phase 1) + BindToken (Phase 2)
 app/(auth)/_layout.tsx      [done]     headerless Stack; redirects live in root AuthGate
-app/(auth)/sign-in.tsx      [done]     useSignIn email+password flow
-app/(auth)/sign-up.tsx      [done]     useSignUp + email-code verification
+app/(auth)/sign-in.tsx      [done]     useSignIn email+password + <SsoButton> Apple/Google (§4.10)
+app/(auth)/sign-up.tsx      [done]     useSignUp + email-code + <SsoButton> in non-verification branch
 app/(protected)/_layout.tsx [pending]  Phase 4: replaces AuthGate once protected files move
+components/auth/sso-button.tsx [done]  shared <SsoButton strategy="oauth_apple|oauth_google" /> (§4.10)
 app/index.tsx               [pending]  Phase 4: bootstrap via GET /me, drop loginWithEmail
 app/profile.tsx             [pending]  Phase 4: useUser header, Sign out via signOut() + clearUserContext (§4.9)
 
@@ -728,9 +936,13 @@ routes/auth.ts              [pending]  drop /auth/login (or 410)
 
 ## 10. Open questions to confirm before starting
 
-1. Production identity strategy — email/password only, or do we want social
+1. ~~Production identity strategy — email/password only, or do we want social
    sign-in (Google/Apple) at launch? Choosing now affects whether we ship a
-   dev build for Phase 1.
+   dev build for Phase 1.~~ **Resolved (2026-05-25):** ship Phase 1 with
+   email/password only; add browser-based Google + Apple via `useSSO` as
+   Phase 5 polish (no dev build needed). Plan details in §4.10. Native UI
+   upgrade deferred until we have a reason to do a dev build for other
+   reasons.
 2. Do we keep `EXPO_PUBLIC_GIFTGENIUS_API_BASE_URL` for production or move to
    a hosted backend URL before Clerk rollout? Auth works either way but
    determines `authorizedParties`.

@@ -3,6 +3,7 @@ import { Link, useRouter } from "expo-router";
 import { useState } from "react";
 import { Pressable, SafeAreaView, Text, TextInput, View } from "react-native";
 
+import { SsoButton } from "@/components/auth/sso-button";
 import { LabeledFeedField } from "@/components/feed-form/labeled-feed-field";
 
 export default function SignInScreen() {
@@ -49,6 +50,27 @@ export default function SignInScreen() {
         <Text className="text-sm text-zinc-600">
           Sign in to keep swiping on gifts.
         </Text>
+
+        <View className="gap-2 pt-1">
+          <SsoButton
+            strategy="oauth_apple"
+            label="Continue with Apple"
+            onError={setError}
+          />
+          <SsoButton
+            strategy="oauth_google"
+            label="Continue with Google"
+            onError={setError}
+          />
+        </View>
+
+        <View className="my-1 flex-row items-center gap-2">
+          <View className="h-px flex-1 bg-zinc-200" />
+          <Text className="text-xs uppercase tracking-wide text-zinc-400">
+            or
+          </Text>
+          <View className="h-px flex-1 bg-zinc-200" />
+        </View>
 
         <LabeledFeedField label="Email">
           <TextInput
