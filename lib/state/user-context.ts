@@ -1,12 +1,18 @@
 export type UserContextState = {
-  userId: number | null;
-  feedId: number | null;
+  /** Backend users.id (UUID string). */
+  userId: string | null;
+  /** Active recipient profile id (UUID). Was feedId in the old API. */
+  profileId: string | null;
+  /** Active feed session id (UUID) for GET /feed/:session_id. */
+  sessionId: string | null;
+  /** Backend JWT from POST /auth/token. */
   accessToken: string | null;
 };
 
 const userContextState: UserContextState = {
   userId: null,
-  feedId: null,
+  profileId: null,
+  sessionId: null,
   accessToken: null,
 };
 
@@ -23,19 +29,30 @@ export function getUserContext(): UserContextState {
   return { ...userContextState };
 }
 
-export function setCurrentUser(userId: number | null) {
+export function setCurrentUser(userId: string | null) {
   userContextState.userId = userId;
   notifyListeners();
 }
 
-export function setCurrentFeed(feedId: number | null) {
-  userContextState.feedId = feedId;
+/** @deprecated Use setCurrentProfile — kept as alias during migration. */
+export function setCurrentFeed(profileId: string | null) {
+  setCurrentProfile(profileId);
+}
+
+export function setCurrentProfile(profileId: string | null) {
+  userContextState.profileId = profileId;
+  notifyListeners();
+}
+
+export function setCurrentSession(sessionId: string | null) {
+  userContextState.sessionId = sessionId;
   notifyListeners();
 }
 
 export function clearUserContext() {
   userContextState.userId = null;
-  userContextState.feedId = null;
+  userContextState.profileId = null;
+  userContextState.sessionId = null;
   userContextState.accessToken = null;
   notifyListeners();
 }
@@ -44,8 +61,17 @@ export function getCurrentUserId() {
   return userContextState.userId;
 }
 
+/** @deprecated Use getCurrentProfileId — kept as alias during migration. */
 export function getCurrentFeedId() {
-  return userContextState.feedId;
+  return getCurrentProfileId();
+}
+
+export function getCurrentProfileId() {
+  return userContextState.profileId;
+}
+
+export function getCurrentSessionId() {
+  return userContextState.sessionId;
 }
 
 export function setAccessToken(accessToken: string | null) {

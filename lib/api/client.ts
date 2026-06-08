@@ -1,15 +1,8 @@
 /**
- * Frontend API client reference implementation.
+ * GiftGenius API client — aligned to giftgenius-engine v2 routes.
  *
- * Purpose:
- * - Typed wrappers for GiftGenius backend endpoints
- * - Centralized base URL, auth header, retries, and error mapping
- *
- * Usage in frontend app:
- *   const api = createGiftGeniusApiClient({
- *     baseUrl: process.env.EXPO_PUBLIC_GIFTGENIUS_API_BASE_URL!,
- *     getUserId: () => userContext.userId,
- *   });
+ * Auth: POST /auth/token → backend JWT in Authorization: Bearer header.
+ * Feed loop: POST /sessions → GET /feed/:session_id → POST /feed/signal.
  */
 
 export type ApiErrorCode =
@@ -34,15 +27,17 @@ export class ApiError extends Error {
 }
 
 export type UserDto = {
-  id: number;
+  id: string;
   name: string;
   email: string | null;
-  createdAt: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 };
 
+/** UI-facing feed shape (mapped from backend profiles). */
 export type FeedDto = {
-  id: number;
-  userId: number;
+  id: string;
+  userId: string;
   name: string;
   ageMin: number | null;
   ageMax: number | null;
@@ -55,8 +50,58 @@ export type FeedDto = {
   createdAt: string | null;
 };
 
+export type ProfileDto = {
+  id: string;
+  user_id: string;
+  label: string;
+  hobby_ids: string[];
+  budget_min: number;
+  budget_max: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type HobbyDto = {
+  id: string;
+  name: string;
+  slug: string;
+};
+
+export type ProfileDetailDto = ProfileDto & {
+  hobbies: HobbyDto[];
+  weights: {
+    hobby_id: string;
+    angle: string;
+    weight: number;
+    cooldown_until: string | null;
+  }[];
+};
+
+export type SessionDto = {
+  id: string;
+  profile_id: string;
+  occasion: string;
+  started_at: string;
+  ended_at: string | null;
+};
+
+export type FeedItemDto = {
+  feed_event_id: string;
+  asin: string;
+  title: string;
+  price: number;
+  image_url: string;
+  product_url: string;
+  category: string;
+  slot_type: "interest" | "adjacent" | "wildcard" | "occasion";
+  hobby_id: string | null;
+  angle: string | null;
+  score: number;
+};
+
+/** Card model used by ProductCard and bookmarks list. */
 export type QueueItemDto = {
-  id: number;
+  id: string;
   sourceId: string;
   source: string;
   title: string;
@@ -68,15 +113,12 @@ export type QueueItemDto = {
 };
 
 export type HealthDto = {
-  ok: boolean;
-  service?: string;
+  status: string;
   timestamp?: string;
 };
 
-export type LoginResponseDto = {
-  accessToken: string;
-  tokenType: "Bearer";
-  expiresInSeconds: number;
+export type TokenResponseDto = {
+  token: string;
   user: UserDto;
 };
 
@@ -84,6 +126,8 @@ type RequestOptions = {
   method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
   body?: unknown;
   requiresAuth?: boolean;
+  /** Dev-only admin routes (no secret when ADMIN_SECRET unset on server). */
+  admin?: boolean;
   retries?: number;
 };
 
@@ -91,14 +135,19 @@ type AccessTokenValue = string | null | undefined;
 
 type ApiClientConfig = {
   baseUrl: string;
-  // Used for feed-scoped routes requiring ownership checks.
-  getUserId?: () => number | null | undefined;
-  // Used when backend requires Bearer auth on secured routes. May return a
-  // string synchronously (legacy demo bearer cached in user-context) or a
-  // Promise (Clerk JWT fetched on demand via `getClerkToken`).
   getAccessToken?: () => AccessTokenValue | Promise<AccessTokenValue>;
   defaultRetries?: number;
 };
+
+function statusToCode(status: number): ApiErrorCode {
+  if (status === 400) return "BAD_REQUEST";
+  if (status === 401) return "UNAUTHORIZED";
+  if (status === 403) return "FORBIDDEN";
+  if (status === 404) return "NOT_FOUND";
+  if (status === 429) return "RATE_LIMITED";
+  if (status >= 500) return "INTERNAL_ERROR";
+  return "INTERNAL_ERROR";
+}
 
 export function createGiftGeniusApiClient(config: ApiClientConfig) {
   const normalizedBase = config.baseUrl.replace(/\/+$/, "");
@@ -112,23 +161,14 @@ export function createGiftGeniusApiClient(config: ApiClientConfig) {
     };
 
     if (opts.requiresAuth) {
-      const userId = config.getUserId?.();
       const accessToken = await config.getAccessToken?.();
-
-      if (accessToken) {
-        headers.authorization = `Bearer ${accessToken}`;
-      }
-
-      if (userId && userId > 0) {
-        headers["x-user-id"] = String(userId);
-      }
-
-      if (!accessToken && (!userId || userId <= 0)) {
+      if (!accessToken) {
         throw new ApiError(
           "UNAUTHORIZED",
-          "Missing auth context. Set userId or access token before secured feed routes."
+          "Missing backend access token. Run bootstrap first."
         );
       }
+      headers.authorization = `Bearer ${accessToken}`;
     }
 
     let lastErr: unknown;
@@ -144,12 +184,15 @@ export function createGiftGeniusApiClient(config: ApiClientConfig) {
         const payload = text ? safeJsonParse(text) : null;
 
         if (!res.ok) {
-          const code = payload?.error?.code as ApiErrorCode | undefined;
-          const message = payload?.error?.message || `Request failed with status ${res.status}`;
-          if (res.status === 429) {
-            throw new ApiError("RATE_LIMITED", message, res.status);
-          }
-          throw new ApiError(code || "INTERNAL_ERROR", message, res.status);
+          const message =
+            payload?.message ||
+            payload?.error?.message ||
+            (typeof payload?.error === "string" ? payload.error : null) ||
+            `Request failed with status ${res.status}`;
+          const code =
+            (payload?.error?.code as ApiErrorCode | undefined) ||
+            statusToCode(res.status);
+          throw new ApiError(code, message, res.status);
         }
 
         return payload as T;
@@ -170,108 +213,106 @@ export function createGiftGeniusApiClient(config: ApiClientConfig) {
   }
 
   return {
-    // Health
     async getHealth(): Promise<HealthDto> {
       return request<HealthDto>("/health", { retries: 0 });
     },
 
-    // Users
-    async getUsers(): Promise<UserDto[]> {
-      const res = await request<{ users: UserDto[] }>("/users");
-      return res.users;
-    },
-    async createUser(payload: { name: string; email?: string }): Promise<UserDto> {
-      return request<UserDto>("/users", {
+    /** Exchange a backend user UUID for a JWT (replaces POST /auth/login). */
+    async exchangeToken(userId: string): Promise<TokenResponseDto> {
+      return request<TokenResponseDto>("/auth/token", {
         method: "POST",
-        body: payload,
-      });
-    },
-    async loginWithEmail(email: string): Promise<LoginResponseDto> {
-      return request<LoginResponseDto>("/auth/login", {
-        method: "POST",
-        body: { email },
+        body: { user_id: userId },
       });
     },
 
-    // Feeds
-    async getFeeds(userId: number): Promise<FeedDto[]> {
-      const res = await request<{ feeds: FeedDto[] }>(
-        `/feeds?userId=${encodeURIComponent(String(userId))}`
-      );
-      return res.feeds;
-    },
-    async createFeed(payload: {
-      userId: number;
+    /** Dev bootstrap: create a row in users (replaces POST /users). */
+    async createAdminUser(payload: {
       name: string;
-      relationship?: string;
-      interests?: string[];
-      budgetMin?: number;
-      budgetMax?: number;
-      occasion?: string | null;
-    }): Promise<FeedDto> {
-      return request<FeedDto>("/feeds", {
+      email: string;
+    }): Promise<UserDto> {
+      return request<UserDto>("/admin/users", {
         method: "POST",
         body: payload,
+        admin: true,
       });
     },
 
-    /** Partial update; backend should accept the same preference fields as create. */
-    async updateFeed(
-      feedId: number,
+    /** Dev bootstrap: hobby picker for profile creation. */
+    async listHobbies(limit = 100): Promise<HobbyDto[]> {
+      const res = await request<{ data: HobbyDto[] }>(
+        `/admin/hobbies?limit=${encodeURIComponent(String(limit))}`,
+        { admin: true }
+      );
+      return res.data;
+    },
+
+    async createProfile(payload: {
+      label: string;
+      hobby_ids: string[];
+      budget_min: number;
+      budget_max: number;
+    }): Promise<ProfileDto> {
+      return request<ProfileDto>("/profiles", {
+        method: "POST",
+        body: payload,
+        requiresAuth: true,
+      });
+    },
+
+    async getProfile(profileId: string): Promise<ProfileDetailDto> {
+      return request<ProfileDetailDto>(`/profiles/${encodeURIComponent(profileId)}`, {
+        requiresAuth: true,
+      });
+    },
+
+    async updateProfile(
+      profileId: string,
       payload: {
-        name: string;
-        relationship?: string | null;
-        interests?: string[];
-        budgetMin?: number | null;
-        budgetMax?: number | null;
-        occasion?: string | null;
+        label?: string;
+        hobby_ids?: string[];
+        budget_min?: number;
+        budget_max?: number;
       }
-    ): Promise<FeedDto> {
-      return request<FeedDto>(`/feeds/${feedId}`, {
+    ): Promise<ProfileDto> {
+      return request<ProfileDto>(`/profiles/${encodeURIComponent(profileId)}`, {
         method: "PATCH",
         body: payload,
         requiresAuth: true,
       });
     },
 
-    // Feed loop
-    async getNext(feedId: number): Promise<{ item: QueueItemDto; queueRemaining: number }> {
-      return request<{ item: QueueItemDto; queueRemaining: number }>(`/feeds/${feedId}/next`, {
-        requiresAuth: true,
-      });
-    },
-    async postInteraction(
-      feedId: number,
-      payload: { catalogItemId: number; type: "like" | "pass" | "save" }
-    ): Promise<{ ok: true }> {
-      return request<{ ok: true }>(`/feeds/${feedId}/interactions`, {
+    async createSession(
+      profileId: string,
+      occasion: string
+    ): Promise<SessionDto> {
+      return request<SessionDto>("/sessions", {
         method: "POST",
-        body: payload,
+        body: { profile_id: profileId, occasion },
         requiresAuth: true,
       });
     },
 
-    /**
-     * Clears a previous interaction on this catalog item for the feed user.
-     * Uses query params so the request has no DELETE body (wide HTTP proxy support).
-     * Backend convention: DELETE /feeds/:feedId/interactions?catalogItemId=&type=like|pass|save
-     */
-    async deleteInteraction(
-      feedId: number,
-      catalogItemId: number,
-      type: "like" | "pass" | "save",
-    ): Promise<{ ok: true }> {
-      const q = `?catalogItemId=${encodeURIComponent(String(catalogItemId))}&type=${encodeURIComponent(type)}`;
-      return request<{ ok: true }>(`/feeds/${feedId}/interactions${q}`, {
-        method: "DELETE",
-        requiresAuth: true,
-      });
+    /** Replaces GET /feeds/:id/next — returns a batch of feed cards. */
+    async getFeedBatch(
+      sessionId: string,
+      batch = 10
+    ): Promise<{ items: FeedItemDto[]; count: number }> {
+      return request<{ items: FeedItemDto[]; count: number }>(
+        `/feed/${encodeURIComponent(sessionId)}?batch=${encodeURIComponent(String(batch))}`,
+        { requiresAuth: true }
+      );
     },
-    async getSaved(feedId: number): Promise<QueueItemDto[]> {
-      const res = await request<{ items: QueueItemDto[] }>(`/feeds/${feedId}/saved`, {
+
+    /** Replaces POST /feeds/:id/interactions. */
+    async postSignal(
+      feedEventId: string,
+      signal: "skip" | "save" | "shop_now" | "dislike"
+    ): Promise<{ ok: true }> {
+      return request<{ ok: true }>("/feed/signal", {
+        method: "POST",
+        body: { feed_event_id: feedEventId, signal },
         requiresAuth: true,
       });
-      return res.items;
     },
   };
 }

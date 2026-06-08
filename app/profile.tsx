@@ -16,12 +16,14 @@ import { useFocusEffect } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { ThemedText } from "@/components/themed-text";
+import { loadProfilesForUser } from "@/lib/api/bootstrap";
 import { createGiftGeniusApiClient } from "@/lib/api/client";
 import { getGiftGeniusApiBaseUrl } from "@/lib/api/config";
 import {
   clearUserContext,
   getAccessToken,
   getCurrentFeedId,
+  getCurrentSessionId,
   getCurrentUserId,
 } from "@/lib/state/user-context";
 
@@ -103,7 +105,6 @@ export default function ProfileScreen() {
     () =>
       createGiftGeniusApiClient({
         baseUrl: getGiftGeniusApiBaseUrl(),
-        getUserId: () => getCurrentUserId(),
         getAccessToken: () => getAccessToken(),
       }),
     []
@@ -115,7 +116,7 @@ export default function ProfileScreen() {
 
   const reload = useCallback(async () => {
     const uid = getCurrentUserId();
-    const fid = getCurrentFeedId();
+    const profileId = getCurrentFeedId();
     if (!uid) {
       setCurrentFeedSummary(null);
       setLoadError(null);
@@ -126,10 +127,14 @@ export default function ProfileScreen() {
     setLoading(true);
     setLoadError(null);
     try {
-      const feeds = await api.getFeeds(uid);
-      const current = fid ? feeds.find((f) => f.id === fid) : null;
+      const profiles = await loadProfilesForUser(api, uid);
+      const current = profileId ? profiles.find((f) => f.id === profileId) : null;
       setCurrentFeedSummary(
-        current ? `${current.name} (#${current.id})` : feeds.length ? `${feeds.length} feeds` : "No feeds"
+        current
+          ? `${current.name}`
+          : profiles.length
+            ? `${profiles.length} profiles`
+            : "No profiles"
       );
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : "Could not load profile.");
@@ -202,15 +207,23 @@ export default function ProfileScreen() {
           <View className="mb-6 rounded-xl border border-zinc-200 p-4">
             <View className="gap-2">
               <View className="flex-row justify-between">
-                <ThemedText className="text-sm text-zinc-500">User ID</ThemedText>
-                <Text className="text-sm text-zinc-900">{getCurrentUserId()}</Text>
+                <ThemedText className="text-sm text-zinc-500">Backend user</ThemedText>
+                <Text className="flex-1 pl-4 text-right text-sm text-zinc-900" numberOfLines={1}>
+                  {getCurrentUserId()}
+                </Text>
               </View>
               <View className="flex-row justify-between">
-                <ThemedText className="text-sm text-zinc-500">Current feed</ThemedText>
+                <ThemedText className="text-sm text-zinc-500">Active profile</ThemedText>
                 <Text className="flex-1 pl-4 text-right text-sm text-zinc-900">{currentFeedSummary ?? "—"}</Text>
               </View>
               <View className="flex-row justify-between">
-                <ThemedText className="text-sm text-zinc-500">Signed in</ThemedText>
+                <ThemedText className="text-sm text-zinc-500">Session</ThemedText>
+                <Text className="flex-1 pl-4 text-right text-sm text-zinc-900" numberOfLines={1}>
+                  {getCurrentSessionId() ?? "—"}
+                </Text>
+              </View>
+              <View className="flex-row justify-between">
+                <ThemedText className="text-sm text-zinc-500">API token</ThemedText>
                 <Text className="text-sm text-zinc-900">{getAccessToken() ? "Yes (Bearer)" : "No"}</Text>
               </View>
             </View>

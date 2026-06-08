@@ -14,13 +14,13 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { createGiftGeniusApiClient, type FeedDto } from "@/lib/api/client";
 import { getGiftGeniusApiBaseUrl } from "@/lib/api/config";
+import { profileToFeedDto } from "@/lib/api/mappers";
 import { LabeledFeedField } from "@/components/feed-form/labeled-feed-field";
 import { ReadOnlyInterestChip } from "@/components/feed-form/read-only-interest-chip";
-import { RELATIONSHIP_OPTIONS, OCCASION_OPTIONS, mergeInterestLists } from "@/lib/feed-form-shared";
+import { mergeInterestLists } from "@/lib/feed-form-shared";
 import {
   getAccessToken,
   getCurrentFeedId,
-  getCurrentUserId,
 } from "@/lib/state/user-context";
 
 function parseBudgetOrNull(value: string): number | null | "invalid" {
@@ -33,35 +33,28 @@ function parseBudgetOrNull(value: string): number | null | "invalid" {
 export default function FeedSettingsScreen() {
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState("");
-  const [relationship, setRelationship] = useState("");
-  const [relationshipOpen, setRelationshipOpen] = useState(false);
-  const [occasion, setOccasion] = useState("");
-  const [occasionOpen, setOccasionOpen] = useState(false);
-  /** Loaded from API; shown read-only—not removable in this UI. */
   const [savedInterests, setSavedInterests] = useState<string[]>([]);
-  /** Comma-separated interests to append on save. */
   const [newInterestsText, setNewInterestsText] = useState("");
   const [budgetMin, setBudgetMin] = useState("");
   const [budgetMax, setBudgetMax] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [feedSnapshot, setFeedSnapshot] = useState<FeedDto | null>(null);
+  const [knownHobbyIds, setKnownHobbyIds] = useState<string[]>([]);
 
   const api = useMemo(
     () =>
       createGiftGeniusApiClient({
         baseUrl: getGiftGeniusApiBaseUrl(),
-        getUserId: () => getCurrentUserId(),
         getAccessToken: () => getAccessToken(),
       }),
     []
   );
 
   const loadFeed = useCallback(async () => {
-    const userId = getCurrentUserId();
-    const feedId = getCurrentFeedId();
-    if (!userId || !feedId) {
-      setError("Missing user or feed. Open the feed from the home screen first.");
+    const profileId = getCurrentFeedId();
+    if (!profileId) {
+      setError("Missing profile. Open the feed from the home screen first.");
       setLoading(false);
       return;
     }
@@ -69,25 +62,17 @@ export default function FeedSettingsScreen() {
     setLoading(true);
     setError(null);
     try {
-      const feeds = await api.getFeeds(userId);
-      const feed = feeds.find((f) => f.id === feedId) ?? null;
-      if (!feed) {
-        setError("Could not load this feed. Try switching feeds from the menu.");
-        setFeedSnapshot(null);
-        setSavedInterests([]);
-        setNewInterestsText("");
-        return;
-      }
+      const detail = await api.getProfile(profileId);
+      const feed = profileToFeedDto(detail);
       setFeedSnapshot(feed);
+      setKnownHobbyIds(detail.hobby_ids);
       setName(feed.name);
-      setRelationship(feed.relationship ?? "");
-      setOccasion(feed.occasion ?? "");
       setSavedInterests(feed.interests?.length ? [...feed.interests] : []);
       setNewInterestsText("");
       setBudgetMin(feed.budgetMin != null ? String(feed.budgetMin) : "");
       setBudgetMax(feed.budgetMax != null ? String(feed.budgetMax) : "");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load feed.");
+      setError(e instanceof Error ? e.message : "Failed to load profile.");
     } finally {
       setLoading(false);
     }
@@ -98,9 +83,9 @@ export default function FeedSettingsScreen() {
   }, [loadFeed]);
 
   const onSave = async () => {
-    const feedId = getCurrentFeedId();
+    const profileId = getCurrentFeedId();
     const trimmedName = name.trim();
-    if (!feedId || !feedSnapshot) {
+    if (!profileId || !feedSnapshot) {
       setError("Nothing to save. Reload this screen.");
       return;
     }
@@ -120,25 +105,41 @@ export default function FeedSettingsScreen() {
       return;
     }
 
-    const combinedInterests = mergeInterestLists(savedInterests, newInterestsText);
+    const combinedInterestNames = mergeInterestLists(savedInterests, newInterestsText);
 
     setSubmitting(true);
     setError(null);
     try {
-      await api.updateFeed(feedId, {
-        name: trimmedName,
-        relationship: relationship.trim() || null,
-        occasion: occasion.trim() || null,
-        interests: combinedInterests,
-        budgetMin: minParsed,
-        budgetMax: maxParsed,
+      let hobbyIds = knownHobbyIds;
+      if (newInterestsText.trim()) {
+        const hobbies = await api.listHobbies();
+        const addedIds: string[] = [];
+        for (const token of combinedInterestNames) {
+          const key = token.toLowerCase();
+          const hit =
+            hobbies.find((h) => h.name.toLowerCase() === key) ??
+            hobbies.find((h) => h.slug.toLowerCase() === key);
+          if (hit && !addedIds.includes(hit.id)) {
+            addedIds.push(hit.id);
+          }
+        }
+        if (addedIds.length > 0) {
+          hobbyIds = addedIds;
+        }
+      }
+
+      await api.updateProfile(profileId, {
+        label: trimmedName,
+        hobby_ids: hobbyIds.length > 0 ? hobbyIds : undefined,
+        budget_min: minParsed ?? undefined,
+        budget_max: maxParsed ?? undefined,
       });
       router.back();
     } catch (submitError) {
       setError(
         submitError instanceof Error
           ? submitError.message
-          : "Failed to update feed. If this persists, the API may not support PATCH /feeds yet."
+          : "Failed to update profile."
       );
     } finally {
       setSubmitting(false);
@@ -149,7 +150,7 @@ export default function FeedSettingsScreen() {
     return (
       <SafeAreaView className="flex-1 items-center justify-center bg-white">
         <ActivityIndicator size="large" />
-        <Text className="mt-3 text-zinc-600">Loading feed…</Text>
+        <Text className="mt-3 text-zinc-600">Loading profile…</Text>
       </SafeAreaView>
     );
   }
@@ -167,110 +168,27 @@ export default function FeedSettingsScreen() {
             contentContainerClassName="gap-3 p-4 pb-4"
             keyboardShouldPersistTaps="handled"
           >
-            <Text className="text-xl font-noto-serif-bold">Feed settings</Text>
+            <Text className="text-xl font-noto-serif-bold">Profile settings</Text>
             <Text className="text-sm text-zinc-600">
-              Update who this feed is for, occasion, interests, and budget. Saving returns you to swipes.
+              Update label, interests, and budget for this recipient profile.
             </Text>
 
             <LabeledFeedField
-              label="Feed title"
+              label="Profile label"
               hint="Shows at the top of the swipe screen—for example who gifts are for."
             >
               <TextInput
                 value={name}
                 onChangeText={setName}
                 placeholder="e.g. Mom, Jamie"
-                accessibilityLabel="Feed title"
+                accessibilityLabel="Profile label"
                 className="rounded-md border border-zinc-300 px-3 py-2 text-zinc-900"
               />
-            </LabeledFeedField>
-            <LabeledFeedField
-              label="Relationship"
-              hint="Helps tailor wording and tone for searches behind your swipe picks."
-            >
-              <View>
-                <Pressable
-                  className="rounded-md border border-zinc-300 px-3 py-2"
-                  accessibilityHint={relationshipOpen ? undefined : "Opens choices"}
-                  accessibilityRole="button"
-                  accessibilityLabel="Relationship"
-                  onPress={() => setRelationshipOpen((prev) => !prev)}
-                >
-                  <Text className={relationship ? "text-zinc-900" : "text-zinc-400"}>
-                    {relationship || "Tap to choose (optional)"}
-                  </Text>
-                </Pressable>
-                {relationshipOpen ? (
-                  <View className="mt-2 rounded-md border border-zinc-300 bg-white">
-                    {RELATIONSHIP_OPTIONS.map((option) => {
-                      const isSelected = relationship === option;
-                      return (
-                        <Pressable
-                          key={option}
-                          onPress={() => {
-                            setRelationship(option);
-                            setRelationshipOpen(false);
-                          }}
-                          className="px-3 py-2"
-                          style={{
-                            backgroundColor: isSelected ? "rgba(31,122,92,0.08)" : "white",
-                          }}
-                        >
-                          <Text className="text-zinc-900">{option}</Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                ) : null}
-              </View>
-            </LabeledFeedField>
-            <LabeledFeedField
-              label="Occasion"
-              hint="What you are shopping for—helps narrow gift ideas to the right context."
-            >
-              <View>
-                <Pressable
-                  className="rounded-md border border-zinc-300 px-3 py-2"
-                  accessibilityHint={occasionOpen ? undefined : "Opens choices"}
-                  accessibilityRole="button"
-                  accessibilityLabel="Occasion"
-                  onPress={() => setOccasionOpen((prev) => !prev)}
-                >
-                  <Text className={occasion ? "text-zinc-900" : "text-zinc-400"}>
-                    {occasion
-                      ? occasion.replace(/_/g, " ")
-                      : "Tap to choose (optional)"}
-                  </Text>
-                </Pressable>
-                {occasionOpen ? (
-                  <View className="mt-2 rounded-md border border-zinc-300 bg-white">
-                    {OCCASION_OPTIONS.map((option) => {
-                      const isSelected = occasion === option;
-                      return (
-                        <Pressable
-                          key={option}
-                          onPress={() => {
-                            setOccasion(option);
-                            setOccasionOpen(false);
-                          }}
-                          className="px-3 py-2"
-                          style={{
-                            backgroundColor: isSelected ? "rgba(31,122,92,0.08)" : "white",
-                          }}
-                        >
-                          <Text className="text-zinc-900">{option.replace(/_/g, " ")}</Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                ) : null}
-              </View>
             </LabeledFeedField>
             <View className="gap-2">
               <Text className="text-sm font-medium text-zinc-900">Saved interests</Text>
               <Text className="-mt-0.5 text-xs leading-snug text-zinc-500">
-                Already on this feed—we use these for matching. You cannot remove them here; use Add
-                interests to append more.
+                Hobbies linked to this profile. Add more below to append matching catalog hobbies.
               </Text>
               {savedInterests.length > 0 ? (
                 <View className="flex-row flex-wrap gap-2">
@@ -279,12 +197,12 @@ export default function FeedSettingsScreen() {
                   ))}
                 </View>
               ) : (
-                <Text className="text-sm text-zinc-500">No interests on this feed yet.</Text>
+                <Text className="text-sm text-zinc-500">No interests on this profile yet.</Text>
               )}
             </View>
             <LabeledFeedField
               label="Add interests"
-              hint="Comma-separated hobbies or topics to add on top of saved ones; duplicates are skipped."
+              hint="Comma-separated hobbies to match against the catalog on save."
             >
               <TextInput
                 value={newInterestsText}
@@ -296,7 +214,7 @@ export default function FeedSettingsScreen() {
             </LabeledFeedField>
             <LabeledFeedField
               label="Budget minimum"
-              hint="Whole dollars in your usual currency. Items below this are filtered out."
+              hint="Whole dollars in your usual currency."
             >
               <TextInput
                 value={budgetMin}
@@ -309,7 +227,7 @@ export default function FeedSettingsScreen() {
             </LabeledFeedField>
             <LabeledFeedField
               label="Budget maximum"
-              hint="Upper price cap for this feed."
+              hint="Upper price cap for this profile."
             >
               <TextInput
                 value={budgetMax}

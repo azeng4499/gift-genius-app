@@ -1,3 +1,4 @@
+import { useUser } from "@clerk/clerk-expo";
 import BottomSheet, {
   BottomSheetBackdrop,
   BottomSheetView,
@@ -33,20 +34,23 @@ import {
 
 import ProductCard from "@/components/product-card/product-card";
 import {
+  bootstrapFromClerkUser,
+  loadProfilesForUser,
+  startSessionForProfile,
+} from "@/lib/api/bootstrap";
+import {
   ApiError,
   createGiftGeniusApiClient,
   type FeedDto,
   type QueueItemDto,
-  type UserDto,
 } from "@/lib/api/client";
 import { getGiftGeniusApiBaseUrl } from "@/lib/api/config";
+import { feedItemToQueueItem, interactionToSignal } from "@/lib/api/mappers";
 import {
   getAccessToken,
   getCurrentFeedId,
+  getCurrentSessionId,
   getCurrentUserId,
-  setAccessToken,
-  setCurrentFeed,
-  setCurrentUser,
 } from "@/lib/state/user-context";
 
 function isFeedQueueEmptyError(error: unknown): boolean {
@@ -59,6 +63,7 @@ function isFeedQueueEmptyError(error: unknown): boolean {
 }
 
 export default function SwipeScreen() {
+  const { user } = useUser();
   const logFeedEvent = useCallback(
     (event: string, details: Record<string, unknown> = {}) => {
       console.log("[FeedDebug]", event, {
@@ -91,12 +96,12 @@ export default function SwipeScreen() {
     "like" | "pass" | "save" | null
   >(null);
   const [interactionByItemId, setInteractionByItemId] = useState<
-    Record<number, "like" | "pass" | "save">
+    Record<string, "like" | "pass" | "save">
   >({});
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [pendingScrollIndex, setPendingScrollIndex] = useState<number | null>(null);
   const feedListRef = useRef<FlatList<QueueItemDto>>(null);
-  const interactedItemIdsRef = useRef<Set<number>>(new Set());
+  const interactedItemIdsRef = useRef<Set<string>>(new Set());
   const hasBootstrappedRef = useRef(false);
   const actionMessageTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
@@ -107,7 +112,6 @@ export default function SwipeScreen() {
     () =>
       createGiftGeniusApiClient({
         baseUrl: getGiftGeniusApiBaseUrl(),
-        getUserId: () => getCurrentUserId(),
         getAccessToken: () => getAccessToken(),
       }),
     []
@@ -139,70 +143,38 @@ export default function SwipeScreen() {
   }, [api]);
 
   const bootstrapUserAndFeed = useCallback(async () => {
-    let selectedUser: UserDto | null = null;
-    const users = await api.getUsers();
-    const userWithEmail = users.find((user) => !!user.email);
-    if (userWithEmail) {
-      selectedUser = userWithEmail;
-    } else {
-      selectedUser = await api.createUser({
-        name: "GiftGenius Demo User",
-        email: "demo.user@giftgenius.local",
-      });
+    if (!user) {
+      throw new Error("Sign in to load your feed.");
     }
+    const result = await bootstrapFromClerkUser(api, user);
+    setAvailableFeeds(result.profiles);
+    setActiveFeedName(result.activeProfile.name);
+  }, [api, user]);
 
-    setCurrentUser(selectedUser.id);
-    if (!selectedUser.email) {
-      throw new Error("Selected user has no email; cannot request bearer token.");
-    }
-    const login = await api.loginWithEmail(selectedUser.email);
-    setAccessToken(login.accessToken);
-    const feeds = await api.getFeeds(selectedUser.id);
-
-    let selectedFeed: FeedDto;
-    if (feeds.length > 0) {
-      selectedFeed = feeds[0];
-    } else {
-      selectedFeed = await api.createFeed({
-        userId: selectedUser.id,
-        name: "Default Feed",
-        relationship: "friend",
-        interests: ["gifts", "tech"],
-        budgetMin: 25,
-        budgetMax: 100,
-      });
-    }
-
-    setAvailableFeeds(feeds.length > 0 ? feeds : [selectedFeed]);
-    setCurrentFeed(selectedFeed.id);
-    setActiveFeedName(selectedFeed.name);
-  }, [api]);
-
-  const fetchNextCard = useCallback(async () => {
-    const feedId = getCurrentFeedId();
-    if (!feedId) {
-      throw new Error("Missing feed context. Run setup first.");
+  const loadMoreFeedItems = useCallback(async () => {
+    const sessionId = getCurrentSessionId();
+    if (!sessionId) {
+      throw new Error("Missing feed session. Run setup first.");
     }
 
     setFeedLoading(true);
     try {
-      const next = await api.getNext(feedId);
-      return next;
+      const batch = await api.getFeedBatch(sessionId, 10);
+      const mapped = batch.items.map(feedItemToQueueItem);
+      logFeedEvent("load_feed_batch", {
+        sessionId,
+        count: mapped.length,
+      });
+      setFeedItems((prev) => {
+        const seen = new Set(prev.map((item) => item.id));
+        const fresh = mapped.filter((item) => !seen.has(item.id));
+        return fresh.length > 0 ? [...prev, ...fresh] : prev;
+      });
+      return mapped.length;
     } finally {
       setFeedLoading(false);
     }
-  }, [api]);
-
-  const appendNextCard = useCallback(async () => {
-    const next = await fetchNextCard();
-    const nextItem = next.item;
-    logFeedEvent("append_next_card", {
-      itemId: nextItem.id,
-      title: nextItem.title,
-      queueRemaining: next.queueRemaining,
-    });
-    setFeedItems((prev) => [...prev, nextItem]);
-  }, [fetchNextCard, logFeedEvent]);
+  }, [api, logFeedEvent]);
 
   const resetAndLoadFeedCards = useCallback(async (): Promise<boolean> => {
     setFeedItems([]);
@@ -210,32 +182,31 @@ export default function SwipeScreen() {
     interactedItemIdsRef.current.clear();
     setInteractionByItemId({});
     try {
-      await appendNextCard();
+      const count = await loadMoreFeedItems();
+      if (count === 0) {
+        setBootstrapError(
+          "No recommendations are in the queue for this feed yet. Try another profile from the menu, open feed settings, or ensure the backend catalog is stocked."
+        );
+        return true;
+      }
+      return false;
     } catch (error) {
       if (isFeedQueueEmptyError(error)) {
         setBootstrapError(
-          "No recommendations are in the queue for this feed yet. Try another feed from the menu, open feed settings, or ensure the backend catalog is stocked for this feed."
+          "No recommendations are in the queue for this feed yet. Try another profile from the menu, open feed settings, or ensure the backend catalog is stocked."
         );
         return true;
       }
       throw error;
     }
-    try {
-      await appendNextCard();
-    } catch (error) {
-      if (!isFeedQueueEmptyError(error)) {
-        throw error;
-      }
-    }
-    return false;
-  }, [appendNextCard]);
+  }, [loadMoreFeedItems]);
 
   const switchToFeed = useCallback(
     async (feed: FeedDto) => {
       try {
-        setCurrentFeed(feed.id);
+        await startSessionForProfile(api, feed.id);
         setActiveFeedName(feed.name);
-        logFeedEvent("feed_switch", { nextFeedId: feed.id, nextFeedName: feed.name });
+        logFeedEvent("feed_switch", { nextProfileId: feed.id, nextProfileName: feed.name });
         const queueEmpty = await resetAndLoadFeedCards();
         if (!queueEmpty) {
           setBootstrapError(null);
@@ -246,12 +217,12 @@ export default function SwipeScreen() {
         setBootstrapError(message);
       }
     },
-    [logFeedEvent, resetAndLoadFeedCards]
+    [api, logFeedEvent, resetAndLoadFeedCards]
   );
 
   useEffect(() => {
-    const selectedFeedId = Number(params.selectedFeedId);
-    if (!params.refreshKey || !Number.isFinite(selectedFeedId) || selectedFeedId <= 0) {
+    const selectedProfileId = params.selectedFeedId?.trim();
+    if (!params.refreshKey || !selectedProfileId) {
       return;
     }
 
@@ -260,11 +231,11 @@ export default function SwipeScreen() {
       if (!userId) return;
 
       try {
-        const feeds = await api.getFeeds(userId);
-        setAvailableFeeds(feeds);
-        const selectedFeed = feeds.find((feed) => feed.id === selectedFeedId);
-        if (selectedFeed) {
-          await switchToFeed(selectedFeed);
+        const profiles = await loadProfilesForUser(api, userId);
+        setAvailableFeeds(profiles);
+        const selectedProfile = profiles.find((feed) => feed.id === selectedProfileId);
+        if (selectedProfile) {
+          await switchToFeed(selectedProfile);
         } else {
           setBootstrapError(null);
         }
@@ -277,49 +248,10 @@ export default function SwipeScreen() {
     refreshAfterCreate();
   }, [api, params.refreshKey, params.selectedFeedId, switchToFeed]);
 
-  const reconnectSessionRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    const key = params.reconnectKey;
-    if (!key || key === reconnectSessionRef.current) return;
-    reconnectSessionRef.current = key;
-
-    let cancelled = false;
-
-    const runReconnect = async () => {
-      try {
-        hasBootstrappedRef.current = false;
-        await bootstrapUserAndFeed();
-        if (cancelled) return;
-        const queueEmpty = await resetAndLoadFeedCards();
-        if (!cancelled) {
-          if (!queueEmpty) {
-            setBootstrapError(null);
-          }
-          reconnectSessionRef.current = null;
-          router.replace("/");
-        }
-      } catch (error) {
-        if (!cancelled) {
-          reconnectSessionRef.current = null;
-          const message =
-            error instanceof Error ? error.message : "Failed to reconnect demo session.";
-          setBootstrapError(message);
-        }
-      }
-    };
-
-    runReconnect();
-    return () => {
-      cancelled = true;
-    };
-  }, [params.reconnectKey, bootstrapUserAndFeed, resetAndLoadFeedCards]);
-
   const submitInteraction = useCallback(
     async (type: "like" | "pass" | "save", opts?: { clear?: boolean }) => {
-      const feedId = getCurrentFeedId();
       const currentItem = feedItems[currentCardIndex];
-      if (!feedId || !currentItem) {
+      if (!currentItem) {
         return;
       }
 
@@ -333,33 +265,13 @@ export default function SwipeScreen() {
       setActiveInteractionType(type);
       try {
         if (clearing) {
-          logFeedEvent("interaction_clear", {
-            type,
-            itemId: currentItem.id,
-            itemTitle: currentItem.title,
-            currentCardIndex,
-          });
-          await api.deleteInteraction(feedId, currentItem.id, type);
-          interactedItemIdsRef.current.delete(currentItem.id);
-          setInteractionByItemId((prev) => {
-            const next = { ...prev };
-            delete next[currentItem.id];
-            return next;
-          });
-
-          let msg: string | null = null;
-          if (type === "save") msg = "Removed from saved";
-          else if (type === "pass") msg = "Removed from disliked";
-          else if (type === "like") msg = "Removed like";
-          if (msg) {
-            setActionMessage(msg);
-            if (actionMessageTimeoutRef.current) {
-              clearTimeout(actionMessageTimeoutRef.current);
-            }
-            actionMessageTimeoutRef.current = setTimeout(() => {
-              setActionMessage(null);
-            }, 1500);
+          setActionMessage("Undo isn't supported on the new API yet.");
+          if (actionMessageTimeoutRef.current) {
+            clearTimeout(actionMessageTimeoutRef.current);
           }
+          actionMessageTimeoutRef.current = setTimeout(() => {
+            setActionMessage(null);
+          }, 1500);
           return;
         }
 
@@ -369,16 +281,13 @@ export default function SwipeScreen() {
           itemTitle: currentItem.title,
           currentCardIndex,
         });
-        await api.postInteraction(feedId, {
-          catalogItemId: currentItem.id,
-          type,
-        });
+        await api.postSignal(currentItem.id, interactionToSignal(type));
         interactedItemIdsRef.current.add(currentItem.id);
         setInteractionByItemId((prev) => ({ ...prev, [currentItem.id]: type }));
         if (type === "save") {
           setActionMessage("Saved to your saved items");
         } else if (type === "pass") {
-          setActionMessage("Added to disliked items");
+          setActionMessage("Skipped this item");
         }
         if (actionMessageTimeoutRef.current) {
           clearTimeout(actionMessageTimeoutRef.current);
@@ -390,7 +299,7 @@ export default function SwipeScreen() {
         const nextIndex = currentCardIndex + 1;
         const isAtEnd = currentCardIndex >= feedItems.length - 1;
         if (isAtEnd) {
-          await appendNextCard();
+          await loadMoreFeedItems();
         }
         setCurrentCardIndex(nextIndex);
         if (nextIndex < feedItems.length || !isAtEnd) {
@@ -407,14 +316,14 @@ export default function SwipeScreen() {
         setActiveInteractionType(null);
       }
     },
-    [api, appendNextCard, currentCardIndex, feedItems, interactionByItemId, logFeedEvent]
+    [api, currentCardIndex, feedItems, interactionByItemId, loadMoreFeedItems, logFeedEvent]
   );
 
   useEffect(() => {
     let cancelled = false;
 
     const runBootstrap = async () => {
-      if (hasBootstrappedRef.current) return;
+      if (hasBootstrappedRef.current || !user) return;
       hasBootstrappedRef.current = true;
       try {
         await bootstrapUserAndFeed();
@@ -443,7 +352,7 @@ export default function SwipeScreen() {
     return () => {
       cancelled = true;
     };
-  }, [bootstrapUserAndFeed, resetAndLoadFeedCards]);
+  }, [bootstrapUserAndFeed, resetAndLoadFeedCards, user]);
 
   const renderBackdrop = useCallback(
     (props: any) => (
@@ -476,7 +385,7 @@ export default function SwipeScreen() {
     };
 
     refresh();
-  }, [bootstrapUserAndFeed, resetAndLoadFeedCards]);
+  }, [bootstrapUserAndFeed, resetAndLoadFeedCards, user]);
 
   const onFeedScrollEnd = useCallback(
     async (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -492,38 +401,32 @@ export default function SwipeScreen() {
       }
 
       if (nextIndex > previousIndex) {
-        const feedId = getCurrentFeedId();
-        if (feedId) {
-          setInteractionInFlight(true);
-          try {
-            for (let index = previousIndex; index < nextIndex; index += 1) {
-              const skippedItem = feedItems[index];
-              if (!skippedItem) continue;
-              if (interactedItemIdsRef.current.has(skippedItem.id)) continue;
-              logFeedEvent("auto_pass_on_scroll", {
-                fromIndex: previousIndex,
-                toIndex: nextIndex,
-                passIndex: index,
-                itemId: skippedItem.id,
-                itemTitle: skippedItem.title,
-              });
-              await api.postInteraction(feedId, {
-                catalogItemId: skippedItem.id,
-                type: "pass",
-              });
-              interactedItemIdsRef.current.add(skippedItem.id);
-              setInteractionByItemId((prev) => ({
-                ...prev,
-                [skippedItem.id]: "pass",
-              }));
-            }
-          } catch (error) {
-            const message =
-              error instanceof Error ? error.message : "Failed to auto-pass item";
-            setBootstrapError(message);
-          } finally {
-            setInteractionInFlight(false);
+        setInteractionInFlight(true);
+        try {
+          for (let index = previousIndex; index < nextIndex; index += 1) {
+            const skippedItem = feedItems[index];
+            if (!skippedItem) continue;
+            if (interactedItemIdsRef.current.has(skippedItem.id)) continue;
+            logFeedEvent("auto_pass_on_scroll", {
+              fromIndex: previousIndex,
+              toIndex: nextIndex,
+              passIndex: index,
+              itemId: skippedItem.id,
+              itemTitle: skippedItem.title,
+            });
+            await api.postSignal(skippedItem.id, "skip");
+            interactedItemIdsRef.current.add(skippedItem.id);
+            setInteractionByItemId((prev) => ({
+              ...prev,
+              [skippedItem.id]: "pass",
+            }));
           }
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : "Failed to auto-skip item";
+          setBootstrapError(message);
+        } finally {
+          setInteractionInFlight(false);
         }
       }
 
@@ -537,7 +440,7 @@ export default function SwipeScreen() {
       });
       if (nextIndex >= feedItems.length - 1 && !feedLoading) {
         try {
-          await appendNextCard();
+          await loadMoreFeedItems();
         } catch (error) {
           const message =
             error instanceof Error ? error.message : "Failed to load next item";
@@ -545,7 +448,7 @@ export default function SwipeScreen() {
         }
       }
     },
-    [api, appendNextCard, currentCardIndex, feedHeight, feedItems, feedLoading]
+    [api, currentCardIndex, feedHeight, feedItems, feedLoading, loadMoreFeedItems, logFeedEvent]
   );
 
   const renderFeedItem = useCallback(
@@ -615,16 +518,16 @@ export default function SwipeScreen() {
   useFocusEffect(
     useCallback(() => {
       const userId = getCurrentUserId();
-      const feedId = getCurrentFeedId();
-      if (!userId || !feedId) return;
+      const profileId = getCurrentFeedId();
+      if (!userId || !profileId) return;
 
       let cancelled = false;
       (async () => {
         try {
-          const feeds = await api.getFeeds(userId);
+          const profiles = await loadProfilesForUser(api, userId);
           if (cancelled) return;
-          setAvailableFeeds(feeds);
-          const current = feeds.find((f) => f.id === feedId);
+          setAvailableFeeds(profiles);
+          const current = profiles.find((f) => f.id === profileId);
           if (current) {
             setActiveFeedName(current.name);
           }
@@ -794,7 +697,7 @@ export default function SwipeScreen() {
                 >
                   <Text className="text-base text-zinc-900">{feed.name}</Text>
                   <Text className="text-xs text-zinc-500">
-                    Feed #{feed.id} {isActive ? "• Current" : ""}
+                    Profile {isActive ? "• Current" : ""}
                   </Text>
                 </Pressable>
               );

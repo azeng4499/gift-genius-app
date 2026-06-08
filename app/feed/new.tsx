@@ -4,18 +4,38 @@ import { Pressable, SafeAreaView, Text, TextInput, View } from "react-native";
 
 import { createGiftGeniusApiClient } from "@/lib/api/client";
 import { getGiftGeniusApiBaseUrl } from "@/lib/api/config";
+import { toBackendOccasion } from "@/lib/api/mappers";
+import {
+  addStoredProfileId,
+} from "@/lib/state/profile-store";
 import {
   getAccessToken,
   getCurrentUserId,
-  setCurrentFeed,
+  setCurrentProfile,
 } from "@/lib/state/user-context";
 import { LabeledFeedField } from "@/components/feed-form/labeled-feed-field";
-import { RELATIONSHIP_OPTIONS, OCCASION_OPTIONS, parseOptionalNumber } from "@/lib/feed-form-shared";
+import { OCCASION_OPTIONS, parseOptionalNumber } from "@/lib/feed-form-shared";
+
+function matchHobbyIds(
+  interestTokens: string[],
+  hobbies: { id: string; name: string; slug: string }[]
+): string[] {
+  const matched: string[] = [];
+  for (const token of interestTokens) {
+    const key = token.toLowerCase();
+    const hit =
+      hobbies.find((h) => h.name.toLowerCase() === key) ??
+      hobbies.find((h) => h.slug.toLowerCase() === key) ??
+      hobbies.find((h) => h.name.toLowerCase().includes(key));
+    if (hit && !matched.includes(hit.id)) {
+      matched.push(hit.id);
+    }
+  }
+  return matched;
+}
 
 export default function NewFeedScreen() {
   const [name, setName] = useState("");
-  const [relationship, setRelationship] = useState("");
-  const [relationshipOpen, setRelationshipOpen] = useState(false);
   const [occasion, setOccasion] = useState("");
   const [occasionOpen, setOccasionOpen] = useState(false);
   const [interests, setInterests] = useState("");
@@ -28,7 +48,6 @@ export default function NewFeedScreen() {
     () =>
       createGiftGeniusApiClient({
         baseUrl: getGiftGeniusApiBaseUrl(),
-        getUserId: () => getCurrentUserId(),
         getAccessToken: () => getAccessToken(),
       }),
     []
@@ -38,7 +57,7 @@ export default function NewFeedScreen() {
     const userId = getCurrentUserId();
     const trimmedName = name.trim();
     if (!userId) {
-      setError("No active user. Go back and run bootstrap first.");
+      setError("No active user. Go back to the home screen first.");
       return;
     }
     if (!trimmedName) {
@@ -46,7 +65,14 @@ export default function NewFeedScreen() {
       return;
     }
 
-    const parsedInterests = interests
+    const parsedMin = parseOptionalNumber(budgetMin) ?? 25;
+    const parsedMax = parseOptionalNumber(budgetMax) ?? 100;
+    if (parsedMax <= parsedMin) {
+      setError("Budget max must be greater than budget min.");
+      return;
+    }
+
+    const interestTokens = interests
       .split(",")
       .map((value) => value.trim())
       .filter(Boolean);
@@ -54,28 +80,40 @@ export default function NewFeedScreen() {
     setSubmitting(true);
     setError(null);
     try {
-      const created = await api.createFeed({
-        userId,
-        name: trimmedName,
-        relationship: relationship.trim() || undefined,
-        occasion: occasion.trim() || undefined,
-        interests: parsedInterests.length > 0 ? parsedInterests : undefined,
-        budgetMin: parseOptionalNumber(budgetMin),
-        budgetMax: parseOptionalNumber(budgetMax),
+      const hobbies = await api.listHobbies();
+      let hobbyIds = matchHobbyIds(interestTokens, hobbies);
+      if (hobbyIds.length === 0 && hobbies.length > 0) {
+        hobbyIds = [hobbies[0].id];
+      }
+      if (hobbyIds.length === 0) {
+        throw new Error("No hobbies available. Ask an admin to seed the catalog.");
+      }
+
+      const created = await api.createProfile({
+        label: trimmedName,
+        hobby_ids: hobbyIds,
+        budget_min: parsedMin,
+        budget_max: parsedMax,
       });
-      setCurrentFeed(created.id);
+
+      await addStoredProfileId(userId, created.id);
+      setCurrentProfile(created.id);
+
+      const backendOccasion = toBackendOccasion(occasion);
+      await api.createSession(created.id, backendOccasion);
+
       router.replace({
         pathname: "/",
         params: {
           refreshKey: String(Date.now()),
-          selectedFeedId: String(created.id),
+          selectedFeedId: created.id,
         },
       });
     } catch (submitError) {
       const message =
         submitError instanceof Error
           ? submitError.message
-          : "Failed to create feed.";
+          : "Failed to create profile.";
       setError(message);
     } finally {
       setSubmitting(false);
@@ -87,64 +125,24 @@ export default function NewFeedScreen() {
       <View className="gap-3 p-4">
         <Text className="text-xl font-noto-serif-bold">Add New Feed Person</Text>
         <Text className="text-sm text-zinc-600">
-          Fill out the person details. This creates a new feed for your active user.
+          Creates a recipient profile (POST /profiles) and starts a feed session.
         </Text>
 
         <LabeledFeedField
-          label="Feed title"
+          label="Profile label"
           hint="Shows at the top of the swipe screen—for example who gifts are for."
         >
           <TextInput
             value={name}
             onChangeText={setName}
             placeholder="e.g. Mom, Jamie"
-            accessibilityLabel="Feed title"
+            accessibilityLabel="Profile label"
             className="rounded-md border border-zinc-300 px-3 py-2 text-zinc-900"
           />
         </LabeledFeedField>
         <LabeledFeedField
-          label="Relationship"
-          hint="Helps tailor wording and tone for searches behind your swipe picks."
-        >
-          <View>
-            <Pressable
-              className="rounded-md border border-zinc-300 px-3 py-2"
-              accessibilityHint={relationshipOpen ? undefined : "Opens choices"}
-              accessibilityRole="button"
-              accessibilityLabel="Relationship"
-              onPress={() => setRelationshipOpen((prev) => !prev)}
-            >
-              <Text className={relationship ? "text-zinc-900" : "text-zinc-400"}>
-                {relationship || "Tap to choose (optional)"}
-              </Text>
-            </Pressable>
-            {relationshipOpen ? (
-              <View className="mt-2 rounded-md border border-zinc-300 bg-white">
-                {RELATIONSHIP_OPTIONS.map((option) => {
-                  const isSelected = relationship === option;
-                  return (
-                    <Pressable
-                      key={option}
-                      onPress={() => {
-                        setRelationship(option);
-                        setRelationshipOpen(false);
-                      }}
-                      className="px-3 py-2"
-                      style={{
-                        backgroundColor: isSelected ? "rgba(31,122,92,0.08)" : "white",
-                      }}
-                    >
-                      <Text className="text-zinc-900">{option}</Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            ) : null}
-          </View>
-        </LabeledFeedField>
-        <LabeledFeedField
           label="Occasion"
-          hint="What you are shopping for—helps narrow gift ideas to the right context."
+          hint="Used when starting the feed session for this profile."
         >
           <View>
             <Pressable
@@ -186,7 +184,7 @@ export default function NewFeedScreen() {
         </LabeledFeedField>
         <LabeledFeedField
           label="Interests"
-          hint="Comma-separated hobbies or topics—we match gifts that align with these."
+          hint="Comma-separated hobbies—we match them to catalog hobby names when possible."
         >
           <TextInput
             value={interests}
@@ -198,7 +196,7 @@ export default function NewFeedScreen() {
         </LabeledFeedField>
         <LabeledFeedField
           label="Budget minimum"
-          hint="Whole dollars in your usual currency. Items below this are filtered out."
+          hint="Whole dollars. Defaults to 25 if left blank."
         >
           <TextInput
             value={budgetMin}
@@ -211,7 +209,7 @@ export default function NewFeedScreen() {
         </LabeledFeedField>
         <LabeledFeedField
           label="Budget maximum"
-          hint="Upper price cap for this feed."
+          hint="Upper price cap. Defaults to 100 if left blank."
         >
           <TextInput
             value={budgetMax}
@@ -232,7 +230,7 @@ export default function NewFeedScreen() {
           style={{ opacity: submitting ? 0.6 : 1 }}
         >
           <Text className="text-center text-white">
-            {submitting ? "Creating..." : "Create feed"}
+            {submitting ? "Creating..." : "Create profile"}
           </Text>
         </Pressable>
       </View>
