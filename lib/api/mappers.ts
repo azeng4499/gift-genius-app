@@ -44,7 +44,8 @@ export function profileToFeedDto(profile: ProfileDetailDto): FeedDto {
 
 export function feedItemToQueueItem(item: FeedItemDto): QueueItemDto {
   const tags = [item.category, item.slot_type, item.angle]
-    .filter((t): t is string => !!t && t.length > 0);
+    .filter((t): t is string => !!t && t.length > 0)
+    .filter((t) => t.toLowerCase() !== "wildcard");
 
   return {
     id: item.feed_event_id,

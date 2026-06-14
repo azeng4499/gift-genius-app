@@ -63,7 +63,7 @@ function isFeedQueueEmptyError(error: unknown): boolean {
 }
 
 export default function SwipeScreen() {
-  const { user } = useUser();
+  const { user, isLoaded: isClerkUserLoaded } = useUser();
   const logFeedEvent = useCallback(
     (event: string, details: Record<string, unknown> = {}) => {
       console.log("[FeedDebug]", event, {
@@ -103,6 +103,7 @@ export default function SwipeScreen() {
   const feedListRef = useRef<FlatList<QueueItemDto>>(null);
   const interactedItemIdsRef = useRef<Set<string>>(new Set());
   const hasBootstrappedRef = useRef(false);
+  const bootstrappedClerkUserIdRef = useRef<string | null>(null);
   const actionMessageTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
   );
@@ -323,12 +324,25 @@ export default function SwipeScreen() {
     let cancelled = false;
 
     const runBootstrap = async () => {
+      if (!isClerkUserLoaded) return;
+
       if (!user) {
         hasBootstrappedRef.current = false;
+        bootstrappedClerkUserIdRef.current = null;
         return;
       }
-      if (hasBootstrappedRef.current) return;
+
+      if (
+        hasBootstrappedRef.current &&
+        bootstrappedClerkUserIdRef.current === user.id &&
+        getCurrentUserId() != null
+      ) {
+        return;
+      }
+
       hasBootstrappedRef.current = true;
+      bootstrappedClerkUserIdRef.current = user.id;
+
       try {
         await bootstrapUserAndFeed();
         const queueEmpty = await resetAndLoadFeedCards();
@@ -342,6 +356,7 @@ export default function SwipeScreen() {
         }
       } catch (error) {
         hasBootstrappedRef.current = false;
+        bootstrappedClerkUserIdRef.current = null;
         if (!cancelled) {
           const message =
             error instanceof Error ? error.message : "Failed to load user/feed";
@@ -355,8 +370,9 @@ export default function SwipeScreen() {
     runBootstrap();
     return () => {
       cancelled = true;
+      hasBootstrappedRef.current = false;
     };
-  }, [bootstrapUserAndFeed, resetAndLoadFeedCards, user]);
+  }, [bootstrapUserAndFeed, isClerkUserLoaded, resetAndLoadFeedCards, user]);
 
   const renderBackdrop = useCallback(
     (props: any) => (

@@ -99,11 +99,6 @@ export async function bootstrapFromClerkUser(
   api: ApiClient,
   clerkUser: ClerkUserLike
 ): Promise<BootstrapResult> {
-  const email = clerkUser.primaryEmailAddress?.emailAddress?.trim();
-  if (!email) {
-    throw new Error("Your Clerk account needs an email address to use GiftGenius.");
-  }
-
   const backendUserId = await resolveBackendUserId(clerkUser.id);
 
   const { token } = await api.exchangeToken(backendUserId);
