@@ -115,6 +115,27 @@ export type QueueItemDto = {
   tags: string[];
 };
 
+export type SavedItemDto = {
+  feed_event_id: string;
+  asin: string;
+  title: string;
+  price: number;
+  image_url: string;
+  product_url: string;
+  slot_type: FeedItemDto["slot_type"] | string | null;
+  hobby_id: string | null;
+  angle: string | null;
+  saved_at: string | null;
+};
+
+export type SavedItemsResponseDto = {
+  items: SavedItemDto[];
+  count: number;
+  total: number;
+  limit: number;
+  offset: number;
+};
+
 export type HealthDto = {
   status: string;
   timestamp?: string;
@@ -351,6 +372,21 @@ export function createGiftGeniusApiClient(config: ApiClientConfig) {
         body: { feed_event_id: feedEventId, signal },
         requiresAuth: true,
       });
+    },
+
+    async getSavedItems(
+      profileId: string,
+      limit = 50,
+      offset = 0
+    ): Promise<SavedItemsResponseDto> {
+      const params = new URLSearchParams({
+        limit: String(limit),
+        offset: String(offset),
+      });
+      return request<SavedItemsResponseDto>(
+        `/profiles/${encodeURIComponent(profileId)}/saved?${params.toString()}`,
+        { requiresAuth: true }
+      );
     },
   };
 }
