@@ -26,6 +26,7 @@ import {
   getCurrentSessionId,
   getCurrentUserId,
 } from "@/lib/state/user-context";
+import { clearStoredJwt } from "@/lib/state/auth-store";
 
 function Row({ title, subtitle, onPress }: { title: string; subtitle?: string; onPress: () => void }) {
   return (
@@ -54,6 +55,7 @@ function SignOutRow() {
       // Drop local app state first so AuthGate's redirect doesn't briefly
       // remount the home screen with the previous user's id still cached.
       clearUserContext();
+      await clearStoredJwt();
       await signOut();
       // AuthGate (root layout) routes us to /(auth)/sign-in when
       // isSignedIn flips to false; no router call needed here.

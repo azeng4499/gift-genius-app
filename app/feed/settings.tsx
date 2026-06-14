@@ -14,6 +14,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { createGiftGeniusApiClient, type FeedDto } from "@/lib/api/client";
 import { getGiftGeniusApiBaseUrl } from "@/lib/api/config";
+import { ensureHobbyCatalog, matchHobbyIds } from "@/lib/api/hobbies";
 import { profileToFeedDto } from "@/lib/api/mappers";
 import { LabeledFeedField } from "@/components/feed-form/labeled-feed-field";
 import { ReadOnlyInterestChip } from "@/components/feed-form/read-only-interest-chip";
@@ -112,17 +113,8 @@ export default function FeedSettingsScreen() {
     try {
       let hobbyIds = knownHobbyIds;
       if (newInterestsText.trim()) {
-        const hobbies = await api.listHobbies();
-        const addedIds: string[] = [];
-        for (const token of combinedInterestNames) {
-          const key = token.toLowerCase();
-          const hit =
-            hobbies.find((h) => h.name.toLowerCase() === key) ??
-            hobbies.find((h) => h.slug.toLowerCase() === key);
-          if (hit && !addedIds.includes(hit.id)) {
-            addedIds.push(hit.id);
-          }
-        }
+        const hobbies = await ensureHobbyCatalog(api);
+        const addedIds = matchHobbyIds(combinedInterestNames, hobbies);
         if (addedIds.length > 0) {
           hobbyIds = addedIds;
         }

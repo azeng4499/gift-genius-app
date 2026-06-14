@@ -5,6 +5,9 @@
  * Feed loop: POST /sessions → GET /feed/:session_id → POST /feed/signal.
  */
 
+import { clearStoredJwt } from "@/lib/state/auth-store";
+import { setAccessToken } from "@/lib/state/user-context";
+
 export type ApiErrorCode =
   | "BAD_REQUEST"
   | "UNAUTHORIZED"
@@ -137,6 +140,7 @@ type ApiClientConfig = {
   baseUrl: string;
   getAccessToken?: () => AccessTokenValue | Promise<AccessTokenValue>;
   defaultRetries?: number;
+  onUnauthorized?: () => void;
 };
 
 function statusToCode(status: number): ApiErrorCode {
@@ -171,6 +175,13 @@ export function createGiftGeniusApiClient(config: ApiClientConfig) {
       headers.authorization = `Bearer ${accessToken}`;
     }
 
+    if (opts.admin) {
+      const adminSecret = process.env.EXPO_PUBLIC_GIFTGENIUS_ADMIN_SECRET?.trim();
+      if (adminSecret) {
+        headers["x-admin-secret"] = adminSecret;
+      }
+    }
+
     let lastErr: unknown;
     for (let attempt = 0; attempt <= retries; attempt++) {
       try {
@@ -192,6 +203,11 @@ export function createGiftGeniusApiClient(config: ApiClientConfig) {
           const code =
             (payload?.error?.code as ApiErrorCode | undefined) ||
             statusToCode(res.status);
+          if (code === "UNAUTHORIZED" && opts.requiresAuth) {
+            setAccessToken(null);
+            void clearStoredJwt();
+            config.onUnauthorized?.();
+          }
           throw new ApiError(code, message, res.status);
         }
 
@@ -225,7 +241,7 @@ export function createGiftGeniusApiClient(config: ApiClientConfig) {
       });
     },
 
-    /** Dev bootstrap: create a row in users (replaces POST /users). */
+    /** Dev bootstrap: create a row in users (local admin only — not for production). */
     async createAdminUser(payload: {
       name: string;
       email: string;
@@ -237,13 +253,35 @@ export function createGiftGeniusApiClient(config: ApiClientConfig) {
       });
     },
 
-    /** Dev bootstrap: hobby picker for profile creation. */
-    async listHobbies(limit = 100): Promise<HobbyDto[]> {
+    /** Authenticated hobby catalog (production-safe). */
+    async listHobbiesAuth(limit = 200): Promise<HobbyDto[]> {
+      const res = await request<{ data: HobbyDto[] }>(
+        `/hobbies?limit=${encodeURIComponent(String(limit))}`,
+        { requiresAuth: true }
+      );
+      return res.data ?? [];
+    },
+
+    /** Dev-only admin hobby list (local backend without ADMIN_SECRET). */
+    async listHobbiesAdmin(limit = 100): Promise<HobbyDto[]> {
       const res = await request<{ data: HobbyDto[] }>(
         `/admin/hobbies?limit=${encodeURIComponent(String(limit))}`,
         { admin: true }
       );
-      return res.data;
+      return res.data ?? [];
+    },
+
+    /** @deprecated Use listHobbiesAuth or listHobbiesAdmin. */
+    async listHobbies(limit = 100): Promise<HobbyDto[]> {
+      return this.listHobbiesAdmin(limit);
+    },
+
+    /** List profiles for the authenticated backend user. */
+    async listProfiles(): Promise<ProfileDto[]> {
+      const res = await request<{ data: ProfileDto[] }>("/profiles", {
+        requiresAuth: true,
+      });
+      return res.data ?? [];
     },
 
     async createProfile(payload: {

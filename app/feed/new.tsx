@@ -4,10 +4,9 @@ import { Pressable, SafeAreaView, Text, TextInput, View } from "react-native";
 
 import { createGiftGeniusApiClient } from "@/lib/api/client";
 import { getGiftGeniusApiBaseUrl } from "@/lib/api/config";
+import { ensureHobbyCatalog, matchHobbyIds } from "@/lib/api/hobbies";
 import { toBackendOccasion } from "@/lib/api/mappers";
-import {
-  addStoredProfileId,
-} from "@/lib/state/profile-store";
+import { addStoredProfileId } from "@/lib/state/profile-store";
 import {
   getAccessToken,
   getCurrentUserId,
@@ -15,24 +14,6 @@ import {
 } from "@/lib/state/user-context";
 import { LabeledFeedField } from "@/components/feed-form/labeled-feed-field";
 import { OCCASION_OPTIONS, parseOptionalNumber } from "@/lib/feed-form-shared";
-
-function matchHobbyIds(
-  interestTokens: string[],
-  hobbies: { id: string; name: string; slug: string }[]
-): string[] {
-  const matched: string[] = [];
-  for (const token of interestTokens) {
-    const key = token.toLowerCase();
-    const hit =
-      hobbies.find((h) => h.name.toLowerCase() === key) ??
-      hobbies.find((h) => h.slug.toLowerCase() === key) ??
-      hobbies.find((h) => h.name.toLowerCase().includes(key));
-    if (hit && !matched.includes(hit.id)) {
-      matched.push(hit.id);
-    }
-  }
-  return matched;
-}
 
 export default function NewFeedScreen() {
   const [name, setName] = useState("");
@@ -57,7 +38,7 @@ export default function NewFeedScreen() {
     const userId = getCurrentUserId();
     const trimmedName = name.trim();
     if (!userId) {
-      setError("No active user. Go back to the home screen first.");
+      setError("Session not ready. Go back to the home screen and wait for setup to finish.");
       return;
     }
     if (!trimmedName) {
@@ -80,13 +61,13 @@ export default function NewFeedScreen() {
     setSubmitting(true);
     setError(null);
     try {
-      const hobbies = await api.listHobbies();
+      const hobbies = await ensureHobbyCatalog(api);
       let hobbyIds = matchHobbyIds(interestTokens, hobbies);
       if (hobbyIds.length === 0 && hobbies.length > 0) {
         hobbyIds = [hobbies[0].id];
       }
       if (hobbyIds.length === 0) {
-        throw new Error("No hobbies available. Ask an admin to seed the catalog.");
+        throw new Error("No hobbies available in the catalog.");
       }
 
       const created = await api.createProfile({

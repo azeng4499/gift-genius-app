@@ -323,7 +323,11 @@ export default function SwipeScreen() {
     let cancelled = false;
 
     const runBootstrap = async () => {
-      if (hasBootstrappedRef.current || !user) return;
+      if (!user) {
+        hasBootstrappedRef.current = false;
+        return;
+      }
+      if (hasBootstrappedRef.current) return;
       hasBootstrappedRef.current = true;
       try {
         await bootstrapUserAndFeed();
