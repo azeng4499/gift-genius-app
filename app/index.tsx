@@ -16,6 +16,7 @@ import {
   NativeScrollEvent,
   Text,
   View,
+  ActivityIndicator,
 } from "react-native";
 import {
   SafeAreaView,
@@ -335,7 +336,8 @@ export default function SwipeScreen() {
       if (
         hasBootstrappedRef.current &&
         bootstrappedClerkUserIdRef.current === user.id &&
-        getCurrentUserId() != null
+        getCurrentUserId() != null &&
+        getCurrentSessionId() != null
       ) {
         return;
       }
@@ -631,7 +633,20 @@ export default function SwipeScreen() {
               }}
             />
           </View>
-          {feedLoading ? (
+          {feedLoading && feedItems.length === 0 ? (
+            <View className="absolute inset-0 items-center justify-center bg-white/90 px-6">
+              <ActivityIndicator size="large" />
+              <Text className="mt-4 text-center text-base font-medium text-zinc-900">
+                Building your feed…
+              </Text>
+              <Text className="mt-2 text-center text-sm text-zinc-600">
+                This can take a minute on a cold server or right after the database
+                was reset. Saved items load from history; new cards need the catalog
+                to warm up.
+              </Text>
+            </View>
+          ) : null}
+          {feedLoading && feedItems.length > 0 ? (
             <View className="px-3 pb-2">
               <Text className="text-sm text-zinc-600">Loading next recommendation...</Text>
             </View>

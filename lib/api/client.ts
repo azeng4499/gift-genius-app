@@ -153,6 +153,8 @@ type RequestOptions = {
   /** Dev-only admin routes (no secret when ADMIN_SECRET unset on server). */
   admin?: boolean;
   retries?: number;
+  /** Abort the request after this many milliseconds (feed generation can be slow). */
+  timeoutMs?: number;
 };
 
 type AccessTokenValue = string | null | undefined;
@@ -205,11 +207,21 @@ export function createGiftGeniusApiClient(config: ApiClientConfig) {
 
     let lastErr: unknown;
     for (let attempt = 0; attempt <= retries; attempt++) {
+      const controller =
+        opts.timeoutMs != null && opts.timeoutMs > 0
+          ? new AbortController()
+          : null;
+      const timeoutId =
+        controller != null
+          ? setTimeout(() => controller.abort(), opts.timeoutMs)
+          : null;
+
       try {
         const res = await fetch(`${normalizedBase}${path}`, {
           method,
           headers,
           body: opts.body != null ? JSON.stringify(opts.body) : undefined,
+          signal: controller?.signal,
         });
 
         const text = await res.text();
@@ -235,6 +247,15 @@ export function createGiftGeniusApiClient(config: ApiClientConfig) {
         return payload as T;
       } catch (err) {
         lastErr = err;
+        const isAbort =
+          err instanceof Error &&
+          (err.name === "AbortError" || err.message.includes("aborted"));
+        if (isAbort) {
+          throw new ApiError(
+            "NETWORK_ERROR",
+            "The feed request timed out. The server may still be building recommendations after a database reset — try pull-to-refresh in a minute, or ask an admin to run taxonomy sync and precompute on the backend."
+          );
+        }
         const shouldRetry =
           attempt < retries &&
           (err instanceof TypeError ||
@@ -242,6 +263,8 @@ export function createGiftGeniusApiClient(config: ApiClientConfig) {
               (err.code === "RATE_LIMITED" || err.status >= 500)));
         if (!shouldRetry) break;
         await sleep(250 * (attempt + 1));
+      } finally {
+        if (timeoutId != null) clearTimeout(timeoutId);
       }
     }
 
@@ -358,7 +381,7 @@ export function createGiftGeniusApiClient(config: ApiClientConfig) {
     ): Promise<{ items: FeedItemDto[]; count: number }> {
       return request<{ items: FeedItemDto[]; count: number }>(
         `/feed/${encodeURIComponent(sessionId)}?batch=${encodeURIComponent(String(batch))}`,
-        { requiresAuth: true }
+        { requiresAuth: true, retries: 0, timeoutMs: 120_000 }
       );
     },
 
