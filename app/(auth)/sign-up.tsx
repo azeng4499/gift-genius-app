@@ -1,10 +1,19 @@
 import { useSignUp } from "@clerk/clerk-expo";
 import { Link, useRouter } from "expo-router";
+import { Gift } from "lucide-react-native";
 import { useState } from "react";
-import { Pressable, SafeAreaView, Text, TextInput, View } from "react-native";
+import {
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  Text,
+  View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 import { SsoButton } from "@/components/auth/sso-button";
-import { LabeledFeedField } from "@/components/feed-form/labeled-feed-field";
+import { PrimaryButton } from "@/components/ui/primary-button";
+import { TextField } from "@/components/ui/text-field";
 
 export default function SignUpScreen() {
   const { signUp, setActive, isLoaded } = useSignUp();
@@ -27,13 +36,8 @@ export default function SignUpScreen() {
     setSubmitting(true);
     setError(null);
     try {
-      await signUp.create({
-        emailAddress: trimmedEmail,
-        password,
-      });
-      await signUp.prepareEmailAddressVerification({
-        strategy: "email_code",
-      });
+      await signUp.create({ emailAddress: trimmedEmail, password });
+      await signUp.prepareEmailAddressVerification({ strategy: "email_code" });
       setPendingVerification(true);
     } catch (err: unknown) {
       setError(extractClerkErrorMessage(err, "Sign up failed."));
@@ -71,132 +75,114 @@ export default function SignUpScreen() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-white">
-      <View className="gap-3 p-4">
-        {pendingVerification ? (
-          <>
-            <Text className="text-xl font-noto-serif-bold">
-              Verify your email
-            </Text>
-            <Text className="text-sm text-zinc-600">
-              We sent a code to {emailAddress.trim()}. Enter it below to finish
-              creating your account.
-            </Text>
+    <SafeAreaView className="flex-1 bg-white" edges={["top", "bottom"]}>
+      <KeyboardAvoidingView
+        className="flex-1"
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <ScrollView
+          contentContainerClassName="flex-grow px-6 pt-8 pb-8"
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <View className="mb-10 h-12 w-12 items-center justify-center rounded-2xl bg-[#1f7a5c]">
+            <Gift size={24} color="white" strokeWidth={2} />
+          </View>
 
-            <LabeledFeedField label="Verification code">
-              <TextInput
-                value={code}
-                onChangeText={setCode}
-                keyboardType="number-pad"
-                autoComplete="one-time-code"
-                placeholder="123456"
-                accessibilityLabel="Verification code"
-                className="rounded-md border border-zinc-300 px-3 py-2 text-zinc-900"
-              />
-            </LabeledFeedField>
-
-            {error ? (
-              <Text className="text-sm text-red-600">{error}</Text>
-            ) : null}
-
-            <Pressable
-              onPress={onVerify}
-              disabled={submitting || !isLoaded}
-              className="rounded-md bg-black px-4 py-3"
-              style={{ opacity: submitting || !isLoaded ? 0.6 : 1 }}
-            >
-              <Text className="text-center text-white">
-                {submitting ? "Verifying..." : "Verify and continue"}
+          {pendingVerification ? (
+            <>
+              <Text className="font-noto-serif-bold text-[32px] leading-[38px] text-zinc-900">
+                Check your email
               </Text>
-            </Pressable>
-          </>
-        ) : (
-          <>
-            <Text className="text-xl font-noto-serif-bold">
-              Create your account
-            </Text>
-            <Text className="text-sm text-zinc-600">
-              Sign up to save gift ideas and personalize your feeds.
-            </Text>
-
-            <View className="gap-2 pt-1">
-              <SsoButton
-                strategy="oauth_apple"
-                label="Continue with Apple"
-                onError={setError}
-              />
-              <SsoButton
-                strategy="oauth_google"
-                label="Continue with Google"
-                onError={setError}
-              />
-            </View>
-
-            <View className="my-1 flex-row items-center gap-2">
-              <View className="h-px flex-1 bg-zinc-200" />
-              <Text className="text-xs uppercase tracking-wide text-zinc-400">
-                or
+              <Text className="mt-2 text-[15px] leading-relaxed text-zinc-500">
+                We sent a 6-digit code to {emailAddress.trim()}. Enter it below to
+                finish setting up.
               </Text>
-              <View className="h-px flex-1 bg-zinc-200" />
-            </View>
 
-            <LabeledFeedField label="Email">
-              <TextInput
-                value={emailAddress}
-                onChangeText={setEmailAddress}
-                autoCapitalize="none"
-                autoComplete="email"
-                keyboardType="email-address"
-                placeholder="you@example.com"
-                accessibilityLabel="Email"
-                className="rounded-md border border-zinc-300 px-3 py-2 text-zinc-900"
-              />
-            </LabeledFeedField>
+              <View className="mt-8">
+                <TextField
+                  label="Verification code"
+                  value={code}
+                  onChangeText={setCode}
+                  keyboardType="number-pad"
+                  autoComplete="one-time-code"
+                  placeholder="123456"
+                />
+              </View>
 
-            <LabeledFeedField
-              label="Password"
-              hint="At least 8 characters with a mix of letters and numbers."
-            >
-              <TextInput
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry
-                autoComplete="new-password"
-                placeholder="Choose a password"
-                accessibilityLabel="Password"
-                className="rounded-md border border-zinc-300 px-3 py-2 text-zinc-900"
-              />
-            </LabeledFeedField>
+              {error ? <Text className="mt-4 text-sm text-red-600">{error}</Text> : null}
 
-            {error ? (
-              <Text className="text-sm text-red-600">{error}</Text>
-            ) : null}
-
-            <Pressable
-              onPress={onSubmit}
-              disabled={submitting || !isLoaded}
-              className="rounded-md bg-black px-4 py-3"
-              style={{ opacity: submitting || !isLoaded ? 0.6 : 1 }}
-            >
-              <Text className="text-center text-white">
-                {submitting ? "Creating account..." : "Sign up"}
+              <View className="mt-6">
+                <PrimaryButton
+                  label="Verify and continue"
+                  onPress={onVerify}
+                  loading={submitting}
+                  disabled={!isLoaded}
+                />
+              </View>
+            </>
+          ) : (
+            <>
+              <Text className="font-noto-serif-bold text-[32px] leading-[38px] text-zinc-900">
+                Create your account
               </Text>
-            </Pressable>
-
-            <View className="flex-row items-center justify-center gap-1 pt-2">
-              <Text className="text-sm text-zinc-600">
-                Already have an account?
+              <Text className="mt-2 text-[15px] leading-relaxed text-zinc-500">
+                Find thoughtful gifts for everyone on your list.
               </Text>
-              <Link
-                href="/(auth)/sign-in"
-                className="text-sm text-zinc-900 underline"
-              >
-                Sign in
-              </Link>
-            </View>
-          </>
-        )}
-      </View>
+
+              <View className="mt-8 gap-3">
+                <SsoButton strategy="oauth_apple" label="Continue with Apple" onError={setError} />
+                <SsoButton strategy="oauth_google" label="Continue with Google" onError={setError} />
+              </View>
+
+              <View className="my-6 flex-row items-center gap-3">
+                <View className="h-px flex-1 bg-zinc-200" />
+                <Text className="text-xs uppercase tracking-widest text-zinc-400">or</Text>
+                <View className="h-px flex-1 bg-zinc-200" />
+              </View>
+
+              <View className="gap-4">
+                <TextField
+                  label="Email"
+                  value={emailAddress}
+                  onChangeText={setEmailAddress}
+                  autoCapitalize="none"
+                  autoComplete="email"
+                  keyboardType="email-address"
+                  placeholder="you@example.com"
+                />
+                <TextField
+                  label="Password"
+                  hint="At least 8 characters."
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry
+                  autoComplete="new-password"
+                  placeholder="Choose a password"
+                />
+              </View>
+
+              {error ? <Text className="mt-4 text-sm text-red-600">{error}</Text> : null}
+
+              <View className="mt-6">
+                <PrimaryButton
+                  label="Create account"
+                  onPress={onSubmit}
+                  loading={submitting}
+                  disabled={!isLoaded}
+                />
+              </View>
+
+              <View className="mt-auto flex-row items-center justify-center gap-1 pt-8">
+                <Text className="text-sm text-zinc-500">Already have an account?</Text>
+                <Link href="/(auth)/sign-in" className="text-sm font-sf-display-semibold text-zinc-900">
+                  Sign in
+                </Link>
+              </View>
+            </>
+          )}
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

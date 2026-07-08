@@ -13,10 +13,9 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import ProductCardChip from "@/components/product-card/components/product-card-chip";
-import { createGiftGeniusApiClient } from "@/lib/api/client";
-import { getGiftGeniusApiBaseUrl } from "@/lib/api/config";
+import { getApiClient } from "@/lib/api";
 import { savedItemToBookmarkItem, type BookmarkItemDto } from "@/lib/api/mappers";
-import { getAccessToken, getCurrentFeedId } from "@/lib/state/user-context";
+import { getCurrentFeedId } from "@/lib/state/user-context";
 
 function formatPrice(item: BookmarkItemDto): string {
   if (item.priceCents == null || !item.currency) return "Price unavailable";
@@ -83,14 +82,7 @@ function SavedItemRow({ item }: { item: BookmarkItemDto }) {
 }
 
 export default function BookmarksScreen() {
-  const api = useMemo(
-    () =>
-      createGiftGeniusApiClient({
-        baseUrl: getGiftGeniusApiBaseUrl(),
-        getAccessToken: () => getAccessToken(),
-      }),
-    []
-  );
+  const api = useMemo(() => getApiClient(), []);
 
   const [items, setItems] = useState<BookmarkItemDto[]>([]);
   const [loading, setLoading] = useState(true);
@@ -101,7 +93,7 @@ export default function BookmarksScreen() {
     const profileId = getCurrentFeedId();
     if (!profileId) {
       setItems([]);
-      setError("No active profile. Open the feed from the home screen first.");
+      setError("Set up a recipient first to start saving gifts.");
       setLoading(false);
       setRefreshing(false);
       return;

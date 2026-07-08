@@ -15,10 +15,10 @@ export function LabeledFeedField({
   ...rest
 }: LabeledFeedFieldProps) {
   return (
-    <View className={`gap-1 ${className ?? ""}`} {...rest}>
-      <Text className="text-sm font-medium text-zinc-900">{label}</Text>
+    <View className={`gap-1.5 ${className ?? ""}`} {...rest}>
+      <Text className="font-sf-display-medium text-[15px] text-zinc-900">{label}</Text>
       {hint ? (
-        <Text className="-mt-0.5 text-xs leading-snug text-zinc-500">{hint}</Text>
+        <Text className="-mt-0.5 text-[13px] leading-snug text-zinc-500">{hint}</Text>
       ) : null}
       {children}
     </View>

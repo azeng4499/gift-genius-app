@@ -1,3 +1,8 @@
+> ⚠️ **Superseded / historical.** This checklist describes the old `/feeds` +
+> `x-user-id` API and is no longer accurate. The integration shipped against the
+> session-based API with Clerk auth — see `FRONTEND_INTEG.md` and the engine's
+> `ARCHITECTURE.md` for the current contract.
+
 # Feed + Backend Integration Task Breakdown
 
 This checklist is derived from `FRONTEND_INTEG.md` and is scoped to the end state where the feed is fully wired to the GiftGenius backend and usable end-to-end.

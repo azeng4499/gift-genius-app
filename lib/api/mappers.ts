@@ -52,10 +52,53 @@ export function profileToFeedDto(profile: ProfileDetailDto): FeedDto {
   };
 }
 
-function buildCardTags(...values: (string | null | undefined)[]): string[] {
-  return values
-    .filter((t): t is string => !!t && t.length > 0)
-    .filter((t) => t.toLowerCase() !== "wildcard");
+/** Internal angle codes → friendly, shopper-facing labels. */
+const ANGLE_LABELS: Record<string, string> = {
+  consumable: "Supplies",
+  skill: "Gear",
+  experience: "Experience",
+  aesthetic: "Design",
+  social: "For sharing",
+  // wildcard intentionally omitted — it's the "surprise" pick.
+};
+
+const SLOT_LABELS: Record<string, string> = {
+  occasion: "For the occasion",
+  wildcard: "Something different",
+};
+
+function titleCase(value: string): string {
+  return value
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+    .trim();
+}
+
+/**
+ * Build clean, human-readable card tags. Prefers the real product category,
+ * then a friendly label for the recommendation angle/slot. Drops internal
+ * jargon ("interest", "adjacent", raw angle codes).
+ */
+function buildCardTags(
+  category?: string | null,
+  slotType?: string | null,
+  angle?: string | null
+): string[] {
+  const tags: string[] = [];
+
+  if (category && category.trim() && category.toLowerCase() !== "general") {
+    tags.push(titleCase(category));
+  }
+
+  const angleLabel = angle ? ANGLE_LABELS[angle.toLowerCase()] : undefined;
+  if (angleLabel) {
+    tags.push(angleLabel);
+  } else if (slotType && SLOT_LABELS[slotType.toLowerCase()]) {
+    tags.push(SLOT_LABELS[slotType.toLowerCase()]);
+  }
+
+  // De-dupe while preserving order.
+  return [...new Set(tags)];
 }
 
 function cardSnapshotToQueueItem(item: {
@@ -93,15 +136,19 @@ export function savedItemToBookmarkItem(item: SavedItemDto): BookmarkItemDto {
   };
 }
 
-export type InteractionKind = "like" | "pass" | "save";
+export type InteractionKind = "pass" | "save" | "shop" | "dislike";
 
-export function interactionToSignal(type: InteractionKind): "skip" | "save" | "shop_now" | "dislike" {
+export function interactionToSignal(
+  type: InteractionKind
+): "skip" | "save" | "shop_now" | "dislike" {
   switch (type) {
     case "pass":
       return "skip";
     case "save":
       return "save";
-    case "like":
+    case "shop":
       return "shop_now";
+    case "dislike":
+      return "dislike";
   }
 }

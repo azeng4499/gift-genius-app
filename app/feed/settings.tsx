@@ -1,28 +1,24 @@
-import { router } from "expo-router";
+import { router, Stack } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  Pressable,
   ScrollView,
   Text,
-  TextInput,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { createGiftGeniusApiClient, type FeedDto } from "@/lib/api/client";
-import { getGiftGeniusApiBaseUrl } from "@/lib/api/config";
-import { ensureHobbyCatalog, matchHobbyIds } from "@/lib/api/hobbies";
+import { type FeedDto } from "@/lib/api/client";
+import { getApiClient } from "@/lib/api";
 import { profileToFeedDto } from "@/lib/api/mappers";
+import { HobbyChipPicker } from "@/components/feed-form/hobby-chip-picker";
 import { LabeledFeedField } from "@/components/feed-form/labeled-feed-field";
-import { ReadOnlyInterestChip } from "@/components/feed-form/read-only-interest-chip";
-import { mergeInterestLists } from "@/lib/feed-form-shared";
-import {
-  getAccessToken,
-  getCurrentFeedId,
-} from "@/lib/state/user-context";
+import { PrimaryButton } from "@/components/ui/primary-button";
+import { TextField } from "@/components/ui/text-field";
+import { getCurrentFeedId } from "@/lib/state/user-context";
+import { useToast } from "@/components/ui/toast";
 
 function parseBudgetOrNull(value: string): number | null | "invalid" {
   const trimmed = value.trim();
@@ -34,28 +30,20 @@ function parseBudgetOrNull(value: string): number | null | "invalid" {
 export default function FeedSettingsScreen() {
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState("");
-  const [savedInterests, setSavedInterests] = useState<string[]>([]);
-  const [newInterestsText, setNewInterestsText] = useState("");
+  const [hobbyIds, setHobbyIds] = useState<string[]>([]);
   const [budgetMin, setBudgetMin] = useState("");
   const [budgetMax, setBudgetMax] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [feedSnapshot, setFeedSnapshot] = useState<FeedDto | null>(null);
-  const [knownHobbyIds, setKnownHobbyIds] = useState<string[]>([]);
 
-  const api = useMemo(
-    () =>
-      createGiftGeniusApiClient({
-        baseUrl: getGiftGeniusApiBaseUrl(),
-        getAccessToken: () => getAccessToken(),
-      }),
-    []
-  );
+  const api = useMemo(() => getApiClient(), []);
+  const toast = useToast();
 
   const loadFeed = useCallback(async () => {
     const profileId = getCurrentFeedId();
     if (!profileId) {
-      setError("Missing profile. Open the feed from the home screen first.");
+      setError("Open a list from the home screen first.");
       setLoading(false);
       return;
     }
@@ -66,14 +54,12 @@ export default function FeedSettingsScreen() {
       const detail = await api.getProfile(profileId);
       const feed = profileToFeedDto(detail);
       setFeedSnapshot(feed);
-      setKnownHobbyIds(detail.hobby_ids);
+      setHobbyIds(detail.hobby_ids);
       setName(feed.name);
-      setSavedInterests(feed.interests?.length ? [...feed.interests] : []);
-      setNewInterestsText("");
       setBudgetMin(feed.budgetMin != null ? String(feed.budgetMin) : "");
       setBudgetMax(feed.budgetMax != null ? String(feed.budgetMax) : "");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load profile.");
+      setError(e instanceof Error ? e.message : "Couldn’t load this list.");
     } finally {
       setLoading(false);
     }
@@ -91,47 +77,41 @@ export default function FeedSettingsScreen() {
       return;
     }
     if (!trimmedName) {
-      setError("Name is required.");
+      setError("Add a name so you know whose list this is.");
       return;
     }
 
     const minParsed = parseBudgetOrNull(budgetMin);
     const maxParsed = parseBudgetOrNull(budgetMax);
     if (minParsed === "invalid" || maxParsed === "invalid") {
-      setError("Budget values must be valid numbers.");
+      setError("Budget values must be numbers.");
       return;
     }
     if (minParsed != null && maxParsed != null && minParsed > maxParsed) {
-      setError("Budget min cannot be greater than budget max.");
+      setError("Min budget can’t be more than max budget.");
       return;
     }
-
-    const combinedInterestNames = mergeInterestLists(savedInterests, newInterestsText);
+    if (hobbyIds.length === 0) {
+      setError("Pick at least one interest.");
+      return;
+    }
 
     setSubmitting(true);
     setError(null);
     try {
-      let hobbyIds = knownHobbyIds;
-      if (newInterestsText.trim()) {
-        const hobbies = await ensureHobbyCatalog(api);
-        const addedIds = matchHobbyIds(combinedInterestNames, hobbies);
-        if (addedIds.length > 0) {
-          hobbyIds = addedIds;
-        }
-      }
-
       await api.updateProfile(profileId, {
         label: trimmedName,
-        hobby_ids: hobbyIds.length > 0 ? hobbyIds : undefined,
+        hobby_ids: hobbyIds,
         budget_min: minParsed ?? undefined,
         budget_max: maxParsed ?? undefined,
       });
+      toast.show({ message: "Changes saved", variant: "success" });
       router.back();
     } catch (submitError) {
       setError(
         submitError instanceof Error
           ? submitError.message
-          : "Failed to update profile."
+          : "Couldn’t save changes. Please try again."
       );
     } finally {
       setSubmitting(false);
@@ -141,111 +121,79 @@ export default function FeedSettingsScreen() {
   if (loading) {
     return (
       <SafeAreaView className="flex-1 items-center justify-center bg-white">
-        <ActivityIndicator size="large" />
-        <Text className="mt-3 text-zinc-600">Loading profile…</Text>
+        <ActivityIndicator size="large" color="#1f7a5c" />
+        <Text className="mt-3 text-zinc-500">Loading…</Text>
       </SafeAreaView>
     );
   }
 
   return (
     <SafeAreaView className="flex-1 bg-white" edges={["bottom"]}>
+      <Stack.Screen options={{ title: "Edit list", headerShadowVisible: false }} />
       <KeyboardAvoidingView
         className="flex-1"
         behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 64 : 0}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
       >
-        <View className="flex-1">
-          <ScrollView
-            className="flex-1"
-            contentContainerClassName="gap-3 p-4 pb-4"
-            keyboardShouldPersistTaps="handled"
-          >
-            <Text className="text-xl font-noto-serif-bold">Profile settings</Text>
-            <Text className="text-sm text-zinc-600">
-              Update label, interests, and budget for this recipient profile.
+        <ScrollView
+          contentContainerClassName="gap-6 px-5 pt-3 pb-8"
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <View className="gap-2">
+            <Text className="font-noto-serif-bold text-[26px] leading-tight text-zinc-900">
+              Edit this person
             </Text>
+            <Text className="text-[15px] leading-relaxed text-zinc-500">
+              Update their name, interests, and budget to fine-tune gift ideas.
+            </Text>
+          </View>
 
-            <LabeledFeedField
-              label="Profile label"
-              hint="Shows at the top of the swipe screen—for example who gifts are for."
-            >
-              <TextInput
-                value={name}
-                onChangeText={setName}
-                placeholder="e.g. Mom, Jamie"
-                accessibilityLabel="Profile label"
-                className="rounded-md border border-zinc-300 px-3 py-2 text-zinc-900"
-              />
-            </LabeledFeedField>
-            <View className="gap-2">
-              <Text className="text-sm font-medium text-zinc-900">Saved interests</Text>
-              <Text className="-mt-0.5 text-xs leading-snug text-zinc-500">
-                Hobbies linked to this profile. Add more below to append matching catalog hobbies.
-              </Text>
-              {savedInterests.length > 0 ? (
-                <View className="flex-row flex-wrap gap-2">
-                  {savedInterests.map((tag, index) => (
-                    <ReadOnlyInterestChip key={`${tag}-${index}`} label={tag} />
-                  ))}
-                </View>
-              ) : (
-                <Text className="text-sm text-zinc-500">No interests on this profile yet.</Text>
-              )}
-            </View>
-            <LabeledFeedField
-              label="Add interests"
-              hint="Comma-separated hobbies to match against the catalog on save."
-            >
-              <TextInput
-                value={newInterestsText}
-                onChangeText={setNewInterestsText}
-                placeholder="e.g. hiking, fiction, espresso"
-                accessibilityLabel="Additional interests to add"
-                className="rounded-md border border-zinc-300 px-3 py-2 text-zinc-900"
-              />
-            </LabeledFeedField>
-            <LabeledFeedField
-              label="Budget minimum"
-              hint="Whole dollars in your usual currency."
-            >
-              <TextInput
+          <TextField
+            label="Their name"
+            value={name}
+            onChangeText={setName}
+            placeholder="e.g. Mom, Jamie"
+          />
+
+          <LabeledFeedField
+            label="Interests"
+            hint="Interests we use to pick gifts. Tap to add or remove."
+          >
+            <HobbyChipPicker selectedIds={hobbyIds} onChange={setHobbyIds} />
+          </LabeledFeedField>
+
+          <View className="flex-row gap-3">
+            <View className="flex-1">
+              <TextField
+                label="Min budget"
                 value={budgetMin}
                 onChangeText={setBudgetMin}
-                placeholder="Optional"
+                placeholder="$25"
                 keyboardType="numeric"
-                accessibilityLabel="Budget minimum in dollars"
-                className="rounded-md border border-zinc-300 px-3 py-2 text-zinc-900"
               />
-            </LabeledFeedField>
-            <LabeledFeedField
-              label="Budget maximum"
-              hint="Upper price cap for this profile."
-            >
-              <TextInput
+            </View>
+            <View className="flex-1">
+              <TextField
+                label="Max budget"
                 value={budgetMax}
                 onChangeText={setBudgetMax}
-                placeholder="Optional"
+                placeholder="$100"
                 keyboardType="numeric"
-                accessibilityLabel="Budget maximum in dollars"
-                className="rounded-md border border-zinc-300 px-3 py-2 text-zinc-900"
               />
-            </LabeledFeedField>
-
-            {error ? <Text className="text-sm text-red-600">{error}</Text> : null}
-          </ScrollView>
-
-          <View className="border-t border-zinc-200 bg-white px-4 pt-3 pb-2">
-            <Pressable
-              onPress={onSave}
-              disabled={submitting || !feedSnapshot}
-              className="rounded-md bg-black px-4 py-3.5"
-              style={{ opacity: submitting || !feedSnapshot ? 0.6 : 1 }}
-            >
-              <Text className="text-center text-base font-medium text-white">
-                {submitting ? "Saving…" : "Save changes"}
-              </Text>
-            </Pressable>
+            </View>
           </View>
+
+          {error ? <Text className="text-sm text-red-600">{error}</Text> : null}
+        </ScrollView>
+
+        <View className="border-t border-zinc-100 bg-white px-5 pt-3 pb-2">
+          <PrimaryButton
+            label="Save changes"
+            onPress={onSave}
+            loading={submitting}
+            disabled={!feedSnapshot}
+          />
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>

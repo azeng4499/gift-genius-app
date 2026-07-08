@@ -1,263 +1,64 @@
-# Frontend Integration Guide (GiftGenius API)
+# Frontend ↔ Backend Integration (current)
 
-This guide is for an agent implementing the frontend package that consumes the `giftgenius-engine` backend service.
+How the Expo app (`gift-genius-app`) talks to the engine (`gift-genius-engine`).
+This reflects the **current** implementation. (Older drafts described a legacy
+`/feeds` API and header-based `x-user-id` auth — that is gone.)
 
-## Goal
+## Base URL
 
-Integrate the frontend with the backend API so users can:
-- create/select a user profile
-- create/select a feed
-- fetch swipe cards
-- send interactions (`like`, `pass`, `save`)
-- view saved items
+- Env: `EXPO_PUBLIC_GIFTGENIUS_API_BASE_URL` (defaults to `http://127.0.0.1:3000`)
+- Resolved in `lib/api/config.ts`.
 
----
+## Auth model
 
-## Base URL and Environment
+The app uses **Clerk** for sign-in. The backend trusts the Clerk **session JWT**
+directly:
 
-- Local default: `http://127.0.0.1:3000`
-- Configure frontend with an environment variable:
-  - `EXPO_PUBLIC_GIFTGENIUS_API_BASE_URL` (Expo)
-  - or equivalent web/mobile env key
+1. User signs in with Clerk (email/password or Google/Apple SSO).
+2. `lib/api/token.ts` exposes a getter for the current Clerk session token.
+3. The shared API client (`lib/api/index.ts → getApiClient()`) attaches it as
+   `Authorization: Bearer <clerk_jwt>` on every authenticated request — fetched
+   fresh per request so it never goes stale.
+4. The backend verifies the token against Clerk's JWKS and maps it to a backend
+   user row (created on first sign-in). `request.user.id` is the backend UUID.
 
-Example:
+`lib/api/bootstrap.ts` runs on app load:
+`POST /auth/sync` (ensure backend user) → load profiles → start a session.
 
-```ts
-const API_BASE_URL =
-  process.env.EXPO_PUBLIC_GIFTGENIUS_API_BASE_URL ?? "http://127.0.0.1:3000";
-```
+There is **no** backend-issued JWT and **no** shared dev user. Each Clerk user
+gets their own backend account, profiles, saved items, and learned weights.
 
----
+## Endpoints used
 
-## Authentication Model
+| Client method | Route |
+|---|---|
+| `syncUser` / `getMe` | `POST /auth/sync`, `GET /auth/me` |
+| `listHobbiesAuth` | `GET /hobbies` |
+| `listProfiles` / `getProfile` | `GET /profiles`, `GET /profiles/:id` |
+| `createProfile` / `updateProfile` | `POST /profiles`, `PATCH /profiles/:id` |
+| `createSession` | `POST /sessions` (occasion optional → profile default) |
+| `getFeedBatch` | `GET /feed/:session_id?batch=N` |
+| `postSignal` | `POST /feed/signal` |
+| `getSavedItems` | `GET /profiles/:id/saved` |
 
-The backend now supports token-based auth for feed-scoped routes.
+## Swipe actions → signals
 
-### Login flow
+| UI action | Signal |
+|---|---|
+| Skip / scroll past | `skip` |
+| Save (bookmark) | `save` |
+| Tap "Shop this item" | `shop_now` |
+| Long-press the thumbs-down | `dislike` (hides similar permanently) |
 
-1. Frontend submits an existing user email to:
-   - `POST /auth/login`
-2. Backend returns:
-   - `accessToken`
-   - `tokenType` (`Bearer`)
-   - `expiresInSeconds`
-   - `user`
-3. Frontend stores token in secure storage (Keychain/Keystore preferred).
-4. Frontend sends:
-   - `Authorization: Bearer <accessToken>`
-   - for feed-scoped routes.
+## Errors
 
-### Auth endpoint
+All errors use `{ error: { code, message } }`. The client throws a typed
+`ApiError`; `lib/api/errors.ts → friendlyErrorMessage()` turns it into
+user-facing copy, surfaced via the toast system (`components/ui/toast.tsx`).
+401s are handled by Clerk (the gate in `app/_layout.tsx` redirects to sign-in).
 
-- `POST /auth/login`
-- Body:
+## Local testing without Clerk
 
-```json
-{ "email": "api-user@example.com" }
-```
-
-- Success response:
-
-```json
-{
-  "accessToken": "<jwt>",
-  "tokenType": "Bearer",
-  "expiresInSeconds": 604800,
-  "user": {
-    "id": 1,
-    "name": "Api User",
-    "email": "api-user@example.com",
-    "createdAt": "2026-04-25T16:02:10.222Z"
-  }
-}
-```
-
----
-
-## Endpoints Frontend Should Use
-
-## 1) Health
-- `GET /health`
-- Use for startup connectivity checks.
-
-## 2) Users
-- `GET /users`
-- `POST /users`
-
-Create user request:
-
-```json
-{
-  "name": "Api User",
-  "email": "api-user@example.com"
-}
-```
-
-## 3) Feeds
-- `GET /feeds?userId=<id>`
-- `POST /feeds`
-
-Create feed request:
-
-```json
-{
-  "userId": 1,
-  "name": "Mom",
-  "relationship": "mom",
-  "interests": ["reading", "hiking"],
-  "budgetMin": 10,
-  "budgetMax": 100
-}
-```
-
-## 4) Swipe loop (secured)
-
-All routes below require:
-- `Authorization: Bearer <token>`
-
-Routes:
-- `GET /feeds/:feedId/next`
-- `POST /feeds/:feedId/interactions`
-- `GET /feeds/:feedId/saved`
-
-Interaction request:
-
-```json
-{
-  "catalogItemId": 56,
-  "type": "like"
-}
-```
-
-Allowed `type` values:
-- `like`
-- `pass`
-- `save`
-
----
-
-## API Response Shapes (DTOs)
-
-Use these as frontend TypeScript contracts.
-
-```ts
-export type UserDto = {
-  id: number;
-  name: string;
-  email: string | null;
-  createdAt: string | null;
-};
-
-export type FeedDto = {
-  id: number;
-  userId: number;
-  name: string;
-  ageMin: number | null;
-  ageMax: number | null;
-  relationship: string | null;
-  interests: string[];
-  budgetMin: number | null;
-  budgetMax: number | null;
-  occasion: string | null;
-  tagWeights: Record<string, number>;
-  createdAt: string | null;
-};
-
-export type QueueItemDto = {
-  id: number;
-  sourceId: string;
-  source: string;
-  title: string;
-  imageUrl: string | null;
-  priceCents: number | null;
-  currency: string | null;
-  buyUrl: string | null;
-  tags: string[];
-};
-```
-
-`GET /feeds/:feedId/next` response:
-
-```json
-{
-  "item": {
-    "id": 56,
-    "sourceId": "B01L2HYPNW",
-    "source": "amazon",
-    "title": "Product title",
-    "imageUrl": "https://...",
-    "priceCents": 2999,
-    "currency": "USD",
-    "buyUrl": "https://www.amazon.com/dp/...",
-    "tags": ["outdoor", "technology"]
-  },
-  "queueRemaining": 7
-}
-```
-
----
-
-## Unified Error Format
-
-All error responses follow:
-
-```json
-{
-  "error": {
-    "code": "BAD_REQUEST",
-    "message": "Human-readable message"
-  }
-}
-```
-
-Common codes to handle:
-- `BAD_REQUEST` (400)
-- `UNAUTHORIZED` (401)
-- `FORBIDDEN` (403)
-- `NOT_FOUND` (404)
-- `INTERNAL_ERROR` (500)
-
-Frontend behavior:
-- On `401`: clear token, redirect to re-login.
-- On `403`: show access denied / stale feed ownership message.
-- On `404`: show empty/not-found state.
-- On `5xx`: retry with backoff and show generic failure UI.
-
----
-
-## Recommended Frontend Service Layer
-
-Create a thin API client module in frontend, for example:
-- `src/services/giftgenius-api.ts`
-
-Responsibilities:
-- attach bearer token automatically
-- parse JSON and throw typed `ApiError`
-- normalize network/server errors
-- retry idempotent GET requests (`/health`, `/feeds/:id/next`, `/feeds/:id/saved`) with short backoff
-- do not retry mutation requests by default (`POST /feeds`, `POST /interactions`)
-
----
-
-## Minimum Integration Sequence
-
-1. Call `GET /health`.
-2. Create or select user (`POST /users` or `GET /users`).
-3. Login with `POST /auth/login`, store token.
-4. Create/select feed (`POST /feeds`, `GET /feeds?userId=...`).
-5. Fetch first card (`GET /feeds/:feedId/next` with bearer token).
-6. On swipe, send `POST /feeds/:feedId/interactions`.
-7. Continue loop with next card.
-8. Saved tab uses `GET /feeds/:feedId/saved`.
-
----
-
-## Notes for the Frontend Agent
-
-- Do not rely on `x-user-id` for production flows.
-- Treat token expiry as expected; handle `401` gracefully.
-- Keep payloads small and avoid over-fetching.
-- Use `buyUrl` as-is for outbound product links.
-- Use backend OpenAPI docs for live contract verification:
-  - `/docs` (Swagger UI)
-  - `/docs/json` (OpenAPI JSON)
+Run the engine with `ALLOW_DEV_AUTH=true` and send `x-dev-user-id: <uuid>` to
+act as a specific backend user (see `ARCHITECTURE.md`). The app itself always
+uses Clerk.

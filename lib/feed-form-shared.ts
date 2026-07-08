@@ -7,6 +7,13 @@ export function parseOptionalNumber(value: string) {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+/** Turn a snake_case option value ("baby_shower") into a display label ("Baby Shower"). */
+export function formatOccasionLabel(value: string): string {
+  return value
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 export const RELATIONSHIP_OPTIONS = [
   "mom",
   "dad",

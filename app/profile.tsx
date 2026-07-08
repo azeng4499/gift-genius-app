@@ -17,13 +17,11 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { ThemedText } from "@/components/themed-text";
 import { loadProfilesForUser } from "@/lib/api/bootstrap";
-import { createGiftGeniusApiClient } from "@/lib/api/client";
+import { getApiClient } from "@/lib/api";
 import { getGiftGeniusApiBaseUrl } from "@/lib/api/config";
 import {
   clearUserContext,
-  getAccessToken,
   getCurrentFeedId,
-  getCurrentSessionId,
   getCurrentUserId,
 } from "@/lib/state/user-context";
 import { clearStoredJwt } from "@/lib/state/auth-store";
@@ -103,14 +101,7 @@ function SignOutRow() {
 
 export default function ProfileScreen() {
   const { user } = useUser();
-  const api = useMemo(
-    () =>
-      createGiftGeniusApiClient({
-        baseUrl: getGiftGeniusApiBaseUrl(),
-        getAccessToken: () => getAccessToken(),
-      }),
-    []
-  );
+  const api = useMemo(() => getApiClient(), []);
 
   const [currentFeedSummary, setCurrentFeedSummary] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -207,27 +198,11 @@ export default function ProfileScreen() {
 
         {!loading && getCurrentUserId() != null ? (
           <View className="mb-6 rounded-xl border border-zinc-200 p-4">
-            <View className="gap-2">
-              <View className="flex-row justify-between">
-                <ThemedText className="text-sm text-zinc-500">Backend user</ThemedText>
-                <Text className="flex-1 pl-4 text-right text-sm text-zinc-900" numberOfLines={1}>
-                  {getCurrentUserId()}
-                </Text>
-              </View>
-              <View className="flex-row justify-between">
-                <ThemedText className="text-sm text-zinc-500">Active profile</ThemedText>
-                <Text className="flex-1 pl-4 text-right text-sm text-zinc-900">{currentFeedSummary ?? "—"}</Text>
-              </View>
-              <View className="flex-row justify-between">
-                <ThemedText className="text-sm text-zinc-500">Session</ThemedText>
-                <Text className="flex-1 pl-4 text-right text-sm text-zinc-900" numberOfLines={1}>
-                  {getCurrentSessionId() ?? "—"}
-                </Text>
-              </View>
-              <View className="flex-row justify-between">
-                <ThemedText className="text-sm text-zinc-500">API token</ThemedText>
-                <Text className="text-sm text-zinc-900">{getAccessToken() ? "Yes (Bearer)" : "No"}</Text>
-              </View>
+            <View className="flex-row items-center justify-between">
+              <ThemedText className="text-sm text-zinc-500">Active list</ThemedText>
+              <Text className="flex-1 pl-4 text-right text-base font-medium text-zinc-900" numberOfLines={1}>
+                {currentFeedSummary ?? "—"}
+              </Text>
             </View>
           </View>
         ) : null}

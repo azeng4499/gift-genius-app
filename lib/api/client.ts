@@ -1,12 +1,11 @@
 /**
- * GiftGenius API client — aligned to giftgenius-engine v2 routes.
+ * GiftGenius API client — aligned to giftgenius-engine routes.
  *
- * Auth: POST /auth/token → backend JWT in Authorization: Bearer header.
- * Feed loop: POST /sessions → GET /feed/:session_id → POST /feed/signal.
+ * Auth: the Clerk session JWT is sent as `Authorization: Bearer <token>`.
+ * The backend verifies it and maps it to a backend user (POST /auth/sync,
+ * GET /auth/me). Feed loop: POST /sessions → GET /feed/:session_id →
+ * POST /feed/signal.
  */
-
-import { clearStoredJwt } from "@/lib/state/auth-store";
-import { setAccessToken } from "@/lib/state/user-context";
 
 export type ApiErrorCode =
   | "BAD_REQUEST"
@@ -141,11 +140,6 @@ export type HealthDto = {
   timestamp?: string;
 };
 
-export type TokenResponseDto = {
-  token: string;
-  user: UserDto;
-};
-
 type RequestOptions = {
   method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
   body?: unknown;
@@ -205,15 +199,15 @@ export function createGiftGeniusApiClient(config: ApiClientConfig) {
       }
     }
 
+    // Default timeout so a wrong/unreachable host fails fast instead of
+    // hanging forever (which would leave the app stuck on a loading screen).
+    const timeoutMs = opts.timeoutMs ?? 15000;
     let lastErr: unknown;
     for (let attempt = 0; attempt <= retries; attempt++) {
-      const controller =
-        opts.timeoutMs != null && opts.timeoutMs > 0
-          ? new AbortController()
-          : null;
+      const controller = timeoutMs > 0 ? new AbortController() : null;
       const timeoutId =
         controller != null
-          ? setTimeout(() => controller.abort(), opts.timeoutMs)
+          ? setTimeout(() => controller.abort(), timeoutMs)
           : null;
 
       try {
@@ -237,8 +231,6 @@ export function createGiftGeniusApiClient(config: ApiClientConfig) {
             (payload?.error?.code as ApiErrorCode | undefined) ||
             statusToCode(res.status);
           if (code === "UNAUTHORIZED" && opts.requiresAuth) {
-            setAccessToken(null);
-            void clearStoredJwt();
             config.onUnauthorized?.();
           }
           throw new ApiError(code, message, res.status);
@@ -253,7 +245,7 @@ export function createGiftGeniusApiClient(config: ApiClientConfig) {
         if (isAbort) {
           throw new ApiError(
             "NETWORK_ERROR",
-            "The feed request timed out. The server may still be building recommendations after a database reset — try pull-to-refresh in a minute, or ask an admin to run taxonomy sync and precompute on the backend."
+            "Couldn’t reach the server. Check your connection (and that the API URL is correct), then try again."
           );
         }
         const shouldRetry =
@@ -277,24 +269,25 @@ export function createGiftGeniusApiClient(config: ApiClientConfig) {
       return request<HealthDto>("/health", { retries: 0 });
     },
 
-    /** Exchange a backend user UUID for a JWT (replaces POST /auth/login). */
-    async exchangeToken(userId: string): Promise<TokenResponseDto> {
-      return request<TokenResponseDto>("/auth/token", {
+    /**
+     * Ensure a backend user exists for the signed-in Clerk identity and enrich
+     * its display name/email. Identity is taken from the verified Clerk token;
+     * name/email are best-effort display fields. Returns the backend user.
+     */
+    async syncUser(payload: {
+      name?: string;
+      email?: string;
+    }): Promise<{ user: UserDto }> {
+      return request<{ user: UserDto }>("/auth/sync", {
         method: "POST",
-        body: { user_id: userId },
+        body: payload,
+        requiresAuth: true,
       });
     },
 
-    /** Dev bootstrap: create a row in users (local admin only — not for production). */
-    async createAdminUser(payload: {
-      name: string;
-      email: string;
-    }): Promise<UserDto> {
-      return request<UserDto>("/admin/users", {
-        method: "POST",
-        body: payload,
-        admin: true,
-      });
+    /** Return the authenticated backend user. */
+    async getMe(): Promise<{ user: UserDto }> {
+      return request<{ user: UserDto }>("/auth/me", { requiresAuth: true });
     },
 
     /** Authenticated hobby catalog (production-safe). */
@@ -333,6 +326,7 @@ export function createGiftGeniusApiClient(config: ApiClientConfig) {
       hobby_ids: string[];
       budget_min: number;
       budget_max: number;
+      occasion?: string;
     }): Promise<ProfileDto> {
       return request<ProfileDto>("/profiles", {
         method: "POST",
@@ -354,6 +348,7 @@ export function createGiftGeniusApiClient(config: ApiClientConfig) {
         hobby_ids?: string[];
         budget_min?: number;
         budget_max?: number;
+        occasion?: string;
       }
     ): Promise<ProfileDto> {
       return request<ProfileDto>(`/profiles/${encodeURIComponent(profileId)}`, {
@@ -363,23 +358,30 @@ export function createGiftGeniusApiClient(config: ApiClientConfig) {
       });
     },
 
+    /** Start a feed session. Omit `occasion` to use the profile's saved one. */
     async createSession(
       profileId: string,
-      occasion: string
+      occasion?: string
     ): Promise<SessionDto> {
+      const body: { profile_id: string; occasion?: string } = {
+        profile_id: profileId,
+      };
+      if (occasion) body.occasion = occasion;
       return request<SessionDto>("/sessions", {
         method: "POST",
-        body: { profile_id: profileId, occasion },
+        body,
         requiresAuth: true,
       });
     },
 
-    /** Replaces GET /feeds/:id/next — returns a batch of feed cards. */
+    /** Replaces GET /feeds/:id/next — returns a batch of feed cards.
+     * `preparing` is true when the feed is empty because the profile's
+     * recommendations are still being computed (poll again shortly). */
     async getFeedBatch(
       sessionId: string,
       batch = 10
-    ): Promise<{ items: FeedItemDto[]; count: number }> {
-      return request<{ items: FeedItemDto[]; count: number }>(
+    ): Promise<{ items: FeedItemDto[]; count: number; preparing?: boolean }> {
+      return request<{ items: FeedItemDto[]; count: number; preparing?: boolean }>(
         `/feed/${encodeURIComponent(sessionId)}?batch=${encodeURIComponent(String(batch))}`,
         { requiresAuth: true, retries: 0, timeoutMs: 120_000 }
       );

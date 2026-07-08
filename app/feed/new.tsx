@@ -1,48 +1,61 @@
-import { router } from "expo-router";
+import { router, Stack, useLocalSearchParams } from "expo-router";
 import { useMemo, useState } from "react";
-import { Pressable, SafeAreaView, Text, TextInput, View } from "react-native";
+import {
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
-import { createGiftGeniusApiClient } from "@/lib/api/client";
-import { getGiftGeniusApiBaseUrl } from "@/lib/api/config";
-import { ensureHobbyCatalog, matchHobbyIds } from "@/lib/api/hobbies";
+import { getApiClient } from "@/lib/api";
 import { toBackendOccasion } from "@/lib/api/mappers";
 import { addStoredProfileId } from "@/lib/state/profile-store";
 import {
-  getAccessToken,
   getCurrentUserId,
   setCurrentProfile,
+  setCurrentSession,
 } from "@/lib/state/user-context";
+import { HobbyChipPicker } from "@/components/feed-form/hobby-chip-picker";
 import { LabeledFeedField } from "@/components/feed-form/labeled-feed-field";
-import { OCCASION_OPTIONS, parseOptionalNumber } from "@/lib/feed-form-shared";
+import { PrimaryButton } from "@/components/ui/primary-button";
+import { TextField } from "@/components/ui/text-field";
+import {
+  formatOccasionLabel,
+  OCCASION_OPTIONS,
+  parseOptionalNumber,
+} from "@/lib/feed-form-shared";
+import { useToast } from "@/components/ui/toast";
 
 export default function NewFeedScreen() {
+  const { onboarding } = useLocalSearchParams<{ onboarding?: string }>();
+  const isOnboarding = onboarding === "1";
   const [name, setName] = useState("");
   const [occasion, setOccasion] = useState("");
-  const [occasionOpen, setOccasionOpen] = useState(false);
-  const [interests, setInterests] = useState("");
+  const [hobbyIds, setHobbyIds] = useState<string[]>([]);
   const [budgetMin, setBudgetMin] = useState("");
   const [budgetMax, setBudgetMax] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const api = useMemo(
-    () =>
-      createGiftGeniusApiClient({
-        baseUrl: getGiftGeniusApiBaseUrl(),
-        getAccessToken: () => getAccessToken(),
-      }),
-    []
-  );
+  const api = useMemo(() => getApiClient(), []);
+  const toast = useToast();
 
   const onSubmit = async () => {
     const userId = getCurrentUserId();
     const trimmedName = name.trim();
     if (!userId) {
-      setError("Session not ready. Go back to the home screen and wait for setup to finish.");
+      setError("Setup isn’t finished yet. Go back and try again in a moment.");
       return;
     }
     if (!trimmedName) {
-      setError("Name is required.");
+      setError("Add a name so you know whose list this is.");
+      return;
+    }
+    if (hobbyIds.length === 0) {
+      setError("Pick at least one interest.");
       return;
     }
 
@@ -53,36 +66,25 @@ export default function NewFeedScreen() {
       return;
     }
 
-    const interestTokens = interests
-      .split(",")
-      .map((value) => value.trim())
-      .filter(Boolean);
-
     setSubmitting(true);
     setError(null);
     try {
-      const hobbies = await ensureHobbyCatalog(api);
-      let hobbyIds = matchHobbyIds(interestTokens, hobbies);
-      if (hobbyIds.length === 0 && hobbies.length > 0) {
-        hobbyIds = [hobbies[0].id];
-      }
-      if (hobbyIds.length === 0) {
-        throw new Error("No hobbies available in the catalog.");
-      }
-
+      const backendOccasion = toBackendOccasion(occasion);
       const created = await api.createProfile({
         label: trimmedName,
         hobby_ids: hobbyIds,
         budget_min: parsedMin,
         budget_max: parsedMax,
+        occasion: backendOccasion,
       });
 
       await addStoredProfileId(userId, created.id);
       setCurrentProfile(created.id);
 
-      const backendOccasion = toBackendOccasion(occasion);
-      await api.createSession(created.id, backendOccasion);
+      const session = await api.createSession(created.id);
+      setCurrentSession(session.id);
 
+      toast.show({ message: `${trimmedName}’s list is ready`, variant: "success" });
       router.replace({
         pathname: "/",
         params: {
@@ -91,130 +93,128 @@ export default function NewFeedScreen() {
         },
       });
     } catch (submitError) {
-      const message =
+      setError(
         submitError instanceof Error
           ? submitError.message
-          : "Failed to create profile.";
-      setError(message);
+          : "Couldn’t create the list. Please try again."
+      );
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-white">
-      <View className="gap-3 p-4">
-        <Text className="text-xl font-noto-serif-bold">Add New Feed Person</Text>
-        <Text className="text-sm text-zinc-600">
-          Creates a recipient profile (POST /profiles) and starts a feed session.
-        </Text>
-
-        <LabeledFeedField
-          label="Profile label"
-          hint="Shows at the top of the swipe screen—for example who gifts are for."
+    <SafeAreaView className="flex-1 bg-white" edges={["bottom"]}>
+      <Stack.Screen
+        options={{
+          title: isOnboarding ? "Welcome" : "Add someone",
+          headerBackVisible: !isOnboarding,
+          gestureEnabled: !isOnboarding,
+          headerShadowVisible: false,
+        }}
+      />
+      <KeyboardAvoidingView
+        className="flex-1"
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+      >
+        <ScrollView
+          contentContainerClassName="gap-6 px-5 pt-3 pb-8"
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
-          <TextInput
+          <View className="gap-2">
+            <Text className="font-noto-serif-bold text-[26px] leading-tight text-zinc-900">
+              {isOnboarding
+                ? "Let’s set up your first list"
+                : "Who are you shopping for?"}
+            </Text>
+            <Text className="text-[15px] leading-relaxed text-zinc-500">
+              {isOnboarding
+                ? "Add the first person you’re shopping for and we’ll start finding gifts they’ll love."
+                : "Tell us a little about them and we’ll tailor gift ideas to their taste."}
+            </Text>
+          </View>
+
+          <TextField
+            label="Their name"
+            hint="Shows at the top of your feed — for example “Mom” or “Jamie”."
             value={name}
             onChangeText={setName}
             placeholder="e.g. Mom, Jamie"
-            accessibilityLabel="Profile label"
-            className="rounded-md border border-zinc-300 px-3 py-2 text-zinc-900"
           />
-        </LabeledFeedField>
-        <LabeledFeedField
-          label="Occasion"
-          hint="Used when starting the feed session for this profile."
-        >
-          <View>
-            <Pressable
-              className="rounded-md border border-zinc-300 px-3 py-2"
-              accessibilityHint={occasionOpen ? undefined : "Opens choices"}
-              accessibilityRole="button"
-              accessibilityLabel="Occasion"
-              onPress={() => setOccasionOpen((prev) => !prev)}
-            >
-              <Text className={occasion ? "text-zinc-900" : "text-zinc-400"}>
-                {occasion
-                  ? occasion.replace(/_/g, " ")
-                  : "Tap to choose (optional)"}
-              </Text>
-            </Pressable>
-            {occasionOpen ? (
-              <View className="mt-2 rounded-md border border-zinc-300 bg-white">
-                {OCCASION_OPTIONS.map((option) => {
-                  const isSelected = occasion === option;
-                  return (
-                    <Pressable
-                      key={option}
-                      onPress={() => {
-                        setOccasion(option);
-                        setOccasionOpen(false);
-                      }}
-                      className="px-3 py-2"
-                      style={{
-                        backgroundColor: isSelected ? "rgba(31,122,92,0.08)" : "white",
-                      }}
+
+          <LabeledFeedField
+            label="Occasion"
+            hint="Optional — we’ll prioritize ideas that fit."
+          >
+            <View className="flex-row flex-wrap gap-2">
+              {OCCASION_OPTIONS.map((option) => {
+                const isSelected = occasion === option;
+                return (
+                  <Pressable
+                    key={option}
+                    onPress={() => setOccasion(isSelected ? "" : option)}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: isSelected }}
+                    className={`rounded-full border px-4 py-2 ${
+                      isSelected
+                        ? "border-[#1f7a5c] bg-[#1f7a5c]"
+                        : "border-zinc-300 bg-white"
+                    }`}
+                  >
+                    <Text
+                      className={`font-sf-display-medium text-sm ${
+                        isSelected ? "text-white" : "text-zinc-700"
+                      }`}
                     >
-                      <Text className="text-zinc-900">{option.replace(/_/g, " ")}</Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            ) : null}
+                      {formatOccasionLabel(option)}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </LabeledFeedField>
+
+          <LabeledFeedField
+            label="Interests"
+            hint="Pick a few hobbies or interests to tailor gift ideas."
+          >
+            <HobbyChipPicker selectedIds={hobbyIds} onChange={setHobbyIds} />
+          </LabeledFeedField>
+
+          <View className="flex-row gap-3">
+            <View className="flex-1">
+              <TextField
+                label="Min budget"
+                value={budgetMin}
+                onChangeText={setBudgetMin}
+                placeholder="$25"
+                keyboardType="numeric"
+              />
+            </View>
+            <View className="flex-1">
+              <TextField
+                label="Max budget"
+                value={budgetMax}
+                onChangeText={setBudgetMax}
+                placeholder="$100"
+                keyboardType="numeric"
+              />
+            </View>
           </View>
-        </LabeledFeedField>
-        <LabeledFeedField
-          label="Interests"
-          hint="Comma-separated hobbies—we match them to catalog hobby names when possible."
-        >
-          <TextInput
-            value={interests}
-            onChangeText={setInterests}
-            placeholder="e.g. hiking, fiction, espresso"
-            accessibilityLabel="Interests"
-            className="rounded-md border border-zinc-300 px-3 py-2 text-zinc-900"
-          />
-        </LabeledFeedField>
-        <LabeledFeedField
-          label="Budget minimum"
-          hint="Whole dollars. Defaults to 25 if left blank."
-        >
-          <TextInput
-            value={budgetMin}
-            onChangeText={setBudgetMin}
-            placeholder="Optional"
-            keyboardType="numeric"
-            accessibilityLabel="Budget minimum in dollars"
-            className="rounded-md border border-zinc-300 px-3 py-2 text-zinc-900"
-          />
-        </LabeledFeedField>
-        <LabeledFeedField
-          label="Budget maximum"
-          hint="Upper price cap. Defaults to 100 if left blank."
-        >
-          <TextInput
-            value={budgetMax}
-            onChangeText={setBudgetMax}
-            placeholder="Optional"
-            keyboardType="numeric"
-            accessibilityLabel="Budget maximum in dollars"
-            className="rounded-md border border-zinc-300 px-3 py-2 text-zinc-900"
-          />
-        </LabeledFeedField>
 
-        {error ? <Text className="text-sm text-red-600">{error}</Text> : null}
+          {error ? <Text className="text-sm text-red-600">{error}</Text> : null}
+        </ScrollView>
 
-        <Pressable
-          onPress={onSubmit}
-          disabled={submitting}
-          className="rounded-md bg-black px-4 py-3"
-          style={{ opacity: submitting ? 0.6 : 1 }}
-        >
-          <Text className="text-center text-white">
-            {submitting ? "Creating..." : "Create profile"}
-          </Text>
-        </Pressable>
-      </View>
+        <View className="border-t border-zinc-100 bg-white px-5 pt-3 pb-2">
+          <PrimaryButton
+            label={isOnboarding ? "Start finding gifts" : "Create list"}
+            onPress={onSubmit}
+            loading={submitting}
+          />
+        </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

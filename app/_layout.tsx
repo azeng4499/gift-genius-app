@@ -4,8 +4,10 @@ import { useFonts } from "expo-font";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import "react-native-reanimated";
 
+import { ToastProvider } from "@/components/ui/toast";
 import { registerClerkTokenGetter } from "@/lib/api/token";
 
 import "../global.css";
@@ -82,7 +84,11 @@ export default function RootLayout() {
     <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache}>
       <BindToken />
       <GestureHandlerRootView className="flex-1">
-        <AuthGate />
+        <SafeAreaProvider>
+          <ToastProvider>
+            <AuthGate />
+          </ToastProvider>
+        </SafeAreaProvider>
       </GestureHandlerRootView>
     </ClerkProvider>
   );

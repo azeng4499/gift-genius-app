@@ -3,7 +3,6 @@ import BottomSheet, {
   BottomSheetBackdrop,
   BottomSheetView,
 } from "@gorhom/bottom-sheet";
-import { LinearGradient } from "expo-linear-gradient";
 import { Link, router, useLocalSearchParams } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { StatusBar } from "expo-status-bar";
@@ -27,9 +26,11 @@ import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import {
   Bookmark,
+  Check,
   ChevronDown,
   CircleUserRound,
   House,
+  Plus,
   SlidersHorizontal,
 } from "lucide-react-native";
 
@@ -41,14 +42,18 @@ import {
 } from "@/lib/api/bootstrap";
 import {
   ApiError,
-  createGiftGeniusApiClient,
   type FeedDto,
   type QueueItemDto,
 } from "@/lib/api/client";
-import { getGiftGeniusApiBaseUrl } from "@/lib/api/config";
-import { feedItemToQueueItem, interactionToSignal } from "@/lib/api/mappers";
+import { getApiClient } from "@/lib/api";
+import { friendlyErrorMessage } from "@/lib/api/errors";
 import {
-  getAccessToken,
+  feedItemToQueueItem,
+  interactionToSignal,
+  type InteractionKind,
+} from "@/lib/api/mappers";
+import { useToast } from "@/components/ui/toast";
+import {
   getCurrentFeedId,
   getCurrentSessionId,
   getCurrentUserId,
@@ -79,11 +84,10 @@ export default function SwipeScreen() {
   const insets = useSafeAreaInsets();
   const [feedHeight, setFeedHeight] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
-  const [activeFeedName, setActiveFeedName] = useState("Loading feed...");
+  const [bootstrapping, setBootstrapping] = useState(true);
+  const [activeFeedName, setActiveFeedName] = useState("Your gifts");
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
   const [availableFeeds, setAvailableFeeds] = useState<FeedDto[]>([]);
-  const [newFeedName, setNewFeedName] = useState("");
-  const [creatingFeed, setCreatingFeed] = useState(false);
   const params = useLocalSearchParams<{
     refreshKey?: string;
     selectedFeedId?: string;
@@ -92,32 +96,26 @@ export default function SwipeScreen() {
   const [feedItems, setFeedItems] = useState<QueueItemDto[]>([]);
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
   const [feedLoading, setFeedLoading] = useState(false);
+  // True while the backend is still computing this profile's recommendations
+  // for the first time; drives the "getting ready" screen + polling loop.
+  const [preparingFeed, setPreparingFeed] = useState(false);
+  // Bumped to cancel any in-flight polling loop (feed switch, refresh, unmount).
+  const pollTokenRef = useRef(0);
   const [interactionInFlight, setInteractionInFlight] = useState(false);
   const [activeInteractionType, setActiveInteractionType] = useState<
-    "like" | "pass" | "save" | null
+    "pass" | "save" | null
   >(null);
   const [interactionByItemId, setInteractionByItemId] = useState<
-    Record<string, "like" | "pass" | "save">
+    Record<string, "pass" | "save">
   >({});
-  const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [pendingScrollIndex, setPendingScrollIndex] = useState<number | null>(null);
   const feedListRef = useRef<FlatList<QueueItemDto>>(null);
   const interactedItemIdsRef = useRef<Set<string>>(new Set());
-  const hasBootstrappedRef = useRef(false);
   const bootstrappedClerkUserIdRef = useRef<string | null>(null);
-  const actionMessageTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null
-  );
   const bottomSheetRef = useRef<BottomSheet>(null);
   const snapPoints = useMemo(() => ["50%", "100%"], []);
-  const api = useMemo(
-    () =>
-      createGiftGeniusApiClient({
-        baseUrl: getGiftGeniusApiBaseUrl(),
-        getAccessToken: () => getAccessToken(),
-      }),
-    []
-  );
+  const api = useMemo(() => getApiClient(), []);
+  const toast = useToast();
 
   useEffect(() => {
     let cancelled = false;
@@ -150,13 +148,16 @@ export default function SwipeScreen() {
     }
     const result = await bootstrapFromClerkUser(api, user);
     setAvailableFeeds(result.profiles);
-    setActiveFeedName(result.activeProfile.name);
+    if (result.activeProfile) {
+      setActiveFeedName(result.activeProfile.name);
+    }
+    return result;
   }, [api, user]);
 
   const loadMoreFeedItems = useCallback(async () => {
     const sessionId = getCurrentSessionId();
     if (!sessionId) {
-      throw new Error("Missing feed session. Run setup first.");
+      throw new Error("Your feed isn’t ready yet. Pull down to refresh.");
     }
 
     setFeedLoading(true);
@@ -172,20 +173,78 @@ export default function SwipeScreen() {
         const fresh = mapped.filter((item) => !seen.has(item.id));
         return fresh.length > 0 ? [...prev, ...fresh] : prev;
       });
-      return mapped.length;
+      return { count: mapped.length, preparing: batch.preparing ?? false };
     } finally {
       setFeedLoading(false);
     }
   }, [api, logFeedEvent]);
 
+  const stopFeedPolling = useCallback(() => {
+    pollTokenRef.current += 1;
+    setPreparingFeed(false);
+  }, []);
+
+  // Poll the feed while the backend reports it's still preparing, showing the
+  // "getting your recommendations ready" overlay until items arrive, the
+  // profile is genuinely empty, or we hit the max wait.
+  const startFeedPolling = useCallback(() => {
+    const token = ++pollTokenRef.current;
+    setPreparingFeed(true);
+    const startedAt = Date.now();
+    const MAX_WAIT_MS = 3 * 60 * 1000;
+    const INTERVAL_MS = 4000;
+
+    const tick = async () => {
+      if (token !== pollTokenRef.current) return;
+      try {
+        const { count, preparing } = await loadMoreFeedItems();
+        if (token !== pollTokenRef.current) return;
+        if (count > 0) {
+          setPreparingFeed(false);
+          setBootstrapError(null);
+          return;
+        }
+        if (!preparing) {
+          setPreparingFeed(false);
+          setBootstrapError(
+            "No recommendations are in the queue for this feed yet. Try another profile from the menu, open feed settings, or ensure the backend catalog is stocked."
+          );
+          return;
+        }
+      } catch {
+        if (token !== pollTokenRef.current) return;
+        // Transient error — keep retrying until the max wait.
+      }
+      if (Date.now() - startedAt > MAX_WAIT_MS) {
+        setPreparingFeed(false);
+        setBootstrapError(
+          "This is taking longer than expected. Pull to refresh to try again."
+        );
+        return;
+      }
+      setTimeout(tick, INTERVAL_MS);
+    };
+
+    setTimeout(tick, INTERVAL_MS);
+  }, [loadMoreFeedItems]);
+
+  useEffect(() => stopFeedPolling, [stopFeedPolling]);
+
   const resetAndLoadFeedCards = useCallback(async (): Promise<boolean> => {
+    stopFeedPolling();
     setFeedItems([]);
     setCurrentCardIndex(0);
     interactedItemIdsRef.current.clear();
     setInteractionByItemId({});
     try {
-      const count = await loadMoreFeedItems();
+      const { count, preparing } = await loadMoreFeedItems();
       if (count === 0) {
+        // Still being computed for the first time — poll behind the "getting
+        // ready" screen instead of dead-ending on an empty state.
+        if (preparing) {
+          startFeedPolling();
+          return false;
+        }
         setBootstrapError(
           "No recommendations are in the queue for this feed yet. Try another profile from the menu, open feed settings, or ensure the backend catalog is stocked."
         );
@@ -201,7 +260,7 @@ export default function SwipeScreen() {
       }
       throw error;
     }
-  }, [loadMoreFeedItems]);
+  }, [loadMoreFeedItems, startFeedPolling, stopFeedPolling]);
 
   const switchToFeed = useCallback(
     async (feed: FeedDto) => {
@@ -250,33 +309,42 @@ export default function SwipeScreen() {
     refreshAfterCreate();
   }, [api, params.refreshKey, params.selectedFeedId, switchToFeed]);
 
+  const advanceToNextCard = useCallback(async () => {
+    const nextIndex = currentCardIndex + 1;
+    const isAtEnd = currentCardIndex >= feedItems.length - 1;
+    if (isAtEnd) {
+      await loadMoreFeedItems();
+    }
+    setCurrentCardIndex(nextIndex);
+    if (nextIndex < feedItems.length || !isAtEnd) {
+      feedListRef.current?.scrollToIndex({ index: nextIndex, animated: true });
+    } else {
+      setPendingScrollIndex(nextIndex);
+    }
+  }, [currentCardIndex, feedItems.length, loadMoreFeedItems]);
+
   const submitInteraction = useCallback(
-    async (type: "like" | "pass" | "save", opts?: { clear?: boolean }) => {
+    async (type: InteractionKind, opts?: { clear?: boolean }) => {
       const currentItem = feedItems[currentCardIndex];
       if (!currentItem) {
         return;
       }
 
-      const clearing = !!opts?.clear;
+      // Re-tapping an already-applied save/pass: signals are one-way on this
+      // API, so just acknowledge instead of pretending to undo.
       const appliedForItem = interactionByItemId[currentItem.id];
-      if (clearing && appliedForItem !== type) {
+      if (opts?.clear && appliedForItem === type) {
+        toast.show({
+          message: type === "save" ? "Already saved" : "Already skipped",
+          variant: "info",
+        });
         return;
       }
 
+      const isVisualState = type === "save" || type === "pass";
       setInteractionInFlight(true);
-      setActiveInteractionType(type);
+      setActiveInteractionType(isVisualState ? type : null);
       try {
-        if (clearing) {
-          setActionMessage("Undo isn't supported on the new API yet.");
-          if (actionMessageTimeoutRef.current) {
-            clearTimeout(actionMessageTimeoutRef.current);
-          }
-          actionMessageTimeoutRef.current = setTimeout(() => {
-            setActionMessage(null);
-          }, 1500);
-          return;
-        }
-
         logFeedEvent("interaction_submit", {
           type,
           itemId: currentItem.id,
@@ -285,96 +353,109 @@ export default function SwipeScreen() {
         });
         await api.postSignal(currentItem.id, interactionToSignal(type));
         interactedItemIdsRef.current.add(currentItem.id);
-        setInteractionByItemId((prev) => ({ ...prev, [currentItem.id]: type }));
-        if (type === "save") {
-          setActionMessage("Saved to your saved items");
-        } else if (type === "pass") {
-          setActionMessage("Skipped this item");
+        if (isVisualState) {
+          setInteractionByItemId((prev) => ({ ...prev, [currentItem.id]: type }));
         }
-        if (actionMessageTimeoutRef.current) {
-          clearTimeout(actionMessageTimeoutRef.current);
-        }
-        actionMessageTimeoutRef.current = setTimeout(() => {
-          setActionMessage(null);
-        }, 1500);
 
-        const nextIndex = currentCardIndex + 1;
-        const isAtEnd = currentCardIndex >= feedItems.length - 1;
-        if (isAtEnd) {
-          await loadMoreFeedItems();
+        if (type === "save") {
+          toast.show({ message: "Saved to your list", variant: "saved" });
+        } else if (type === "pass") {
+          toast.show({ message: "Skipped", variant: "info" });
+        } else if (type === "dislike") {
+          toast.show({
+            message: "Got it — we’ll show fewer like this",
+            variant: "info",
+          });
+        } else if (type === "shop") {
+          toast.show({ message: "Opening Amazon…", variant: "info" });
         }
-        setCurrentCardIndex(nextIndex);
-        if (nextIndex < feedItems.length || !isAtEnd) {
-          feedListRef.current?.scrollToIndex({ index: nextIndex, animated: true });
-        } else {
-          setPendingScrollIndex(nextIndex);
+
+        // Buying ("shop") keeps the user on the card so they can come back;
+        // every other action advances the feed.
+        if (type !== "shop") {
+          await advanceToNextCard();
         }
       } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "Interaction failed";
-        setBootstrapError(message);
+        toast.show({ message: friendlyErrorMessage(error), variant: "error" });
       } finally {
         setInteractionInFlight(false);
         setActiveInteractionType(null);
       }
     },
-    [api, currentCardIndex, feedItems, interactionByItemId, loadMoreFeedItems, logFeedEvent]
+    [api, advanceToNextCard, currentCardIndex, feedItems, interactionByItemId, logFeedEvent, toast]
   );
 
+  // Bootstrap exactly once per signed-in user. Depends ONLY on stable values
+  // (the Clerk user id string + load flag) so Clerk re-renders / state updates
+  // can't re-run this and cancel an in-flight bootstrap (which used to leave the
+  // screen stuck on "Setting things up…").
   useEffect(() => {
+    if (!isClerkUserLoaded) return;
+
+    if (!user) {
+      bootstrappedClerkUserIdRef.current = null;
+      setBootstrapping(false);
+      return;
+    }
+
+    // Already bootstrapped this user on this mount.
+    if (bootstrappedClerkUserIdRef.current === user.id) return;
+    bootstrappedClerkUserIdRef.current = user.id;
+
+    // Arriving right after creating a recipient: feed/new already set the active
+    // profile + session, and the post-create effect loads the feed. Skip.
+    if (
+      params.selectedFeedId &&
+      getCurrentUserId() != null &&
+      getCurrentSessionId() != null
+    ) {
+      setBootstrapping(false);
+      return;
+    }
+
     let cancelled = false;
+    let redirecting = false;
+    setBootstrapping(true);
 
-    const runBootstrap = async () => {
-      if (!isClerkUserLoaded) return;
-
-      if (!user) {
-        hasBootstrappedRef.current = false;
-        bootstrappedClerkUserIdRef.current = null;
-        return;
-      }
-
-      if (
-        hasBootstrappedRef.current &&
-        bootstrappedClerkUserIdRef.current === user.id &&
-        getCurrentUserId() != null &&
-        getCurrentSessionId() != null
-      ) {
-        return;
-      }
-
-      hasBootstrappedRef.current = true;
-      bootstrappedClerkUserIdRef.current = user.id;
-
+    (async () => {
       try {
-        await bootstrapUserAndFeed();
+        const result = await bootstrapUserAndFeed();
+        if (cancelled) return;
+
+        // Brand-new user with no recipients → guide them to create one.
+        if (result.needsOnboarding) {
+          redirecting = true;
+          router.replace("/feed/new?onboarding=1");
+          return;
+        }
+
         const queueEmpty = await resetAndLoadFeedCards();
-        if (!cancelled) {
-          if (!queueEmpty) {
-            setBootstrapError(null);
-          }
-          console.log("[GiftGenius API] user/feed bootstrap complete", {
-            userId: getCurrentUserId(),
-          });
+        if (!cancelled && !queueEmpty) {
+          setBootstrapError(null);
         }
       } catch (error) {
-        hasBootstrappedRef.current = false;
-        bootstrappedClerkUserIdRef.current = null;
         if (!cancelled) {
-          const message =
-            error instanceof Error ? error.message : "Failed to load user/feed";
-          setBootstrapError(message);
-          setActiveFeedName("Setup required");
-          console.warn("[GiftGenius API] user/feed bootstrap failed", error);
+          // Allow a retry via pull-to-refresh / next mount.
+          bootstrappedClerkUserIdRef.current = null;
+          setBootstrapError(
+            friendlyErrorMessage(error, "We couldn’t load your gifts.")
+          );
+          setActiveFeedName("Setup needed");
+        }
+      } finally {
+        if (!cancelled && !redirecting) {
+          setBootstrapping(false);
         }
       }
-    };
+    })();
 
-    runBootstrap();
     return () => {
       cancelled = true;
-      hasBootstrappedRef.current = false;
     };
-  }, [bootstrapUserAndFeed, isClerkUserLoaded, resetAndLoadFeedCards, user]);
+    // bootstrapUserAndFeed / resetAndLoadFeedCards are intentionally omitted —
+    // including them re-runs this effect on every render and thrashes bootstrap.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isClerkUserLoaded, user?.id]);
 
   const renderBackdrop = useCallback(
     (props: any) => (
@@ -392,22 +473,24 @@ export default function SwipeScreen() {
     const refresh = async () => {
       setRefreshing(true);
       try {
-        await bootstrapUserAndFeed();
+        const result = await bootstrapUserAndFeed();
+        if (result.needsOnboarding) {
+          router.replace("/feed/new?onboarding=1");
+          return;
+        }
         const queueEmpty = await resetAndLoadFeedCards();
         if (!queueEmpty) {
           setBootstrapError(null);
         }
       } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "Refresh failed";
-        setBootstrapError(message);
+        setBootstrapError(friendlyErrorMessage(error, "Couldn’t refresh."));
       } finally {
         setRefreshing(false);
       }
     };
 
     refresh();
-  }, [bootstrapUserAndFeed, resetAndLoadFeedCards, user]);
+  }, [bootstrapUserAndFeed, resetAndLoadFeedCards]);
 
   const onFeedScrollEnd = useCallback(
     async (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -444,9 +527,7 @@ export default function SwipeScreen() {
             }));
           }
         } catch (error) {
-          const message =
-            error instanceof Error ? error.message : "Failed to auto-skip item";
-          setBootstrapError(message);
+          toast.show({ message: friendlyErrorMessage(error), variant: "error" });
         } finally {
           setInteractionInFlight(false);
         }
@@ -464,13 +545,11 @@ export default function SwipeScreen() {
         try {
           await loadMoreFeedItems();
         } catch (error) {
-          const message =
-            error instanceof Error ? error.message : "Failed to load next item";
-          setBootstrapError(message);
+          toast.show({ message: friendlyErrorMessage(error), variant: "error" });
         }
       }
     },
-    [api, currentCardIndex, feedHeight, feedItems, feedLoading, loadMoreFeedItems, logFeedEvent]
+    [api, currentCardIndex, feedHeight, feedItems, feedLoading, loadMoreFeedItems, logFeedEvent, toast]
   );
 
   const renderFeedItem = useCallback(
@@ -496,14 +575,6 @@ export default function SwipeScreen() {
       submitInteraction,
     ]
   );
-
-  useEffect(() => {
-    return () => {
-      if (actionMessageTimeoutRef.current) {
-        clearTimeout(actionMessageTimeoutRef.current);
-      }
-    };
-  }, []);
 
   useEffect(() => {
     if (pendingScrollIndex == null) return;
@@ -564,6 +635,21 @@ export default function SwipeScreen() {
     }, [api])
   );
 
+  if (bootstrapping) {
+    return (
+      <SafeAreaView className="flex-1 items-center justify-center bg-white px-8">
+        <StatusBar style="dark" />
+        <ActivityIndicator size="large" color="#1f7a5c" />
+        <Text className="mt-4 text-center font-noto-serif-bold text-base text-zinc-900">
+          Setting things up…
+        </Text>
+        <Text className="mt-1 text-center text-sm text-zinc-500">
+          Getting your gift lists ready.
+        </Text>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView className="flex-1 bg-white">
       <StatusBar style="dark" />
@@ -585,20 +671,14 @@ export default function SwipeScreen() {
             <SlidersHorizontal size={30} color="black" strokeWidth={1.5} />
           </Pressable>
         </View>
-        <View className="px-4 pb-2 h-12">
-          {actionMessage ? (
-            <View className="rounded-md bg-zinc-100 px-3 py-2">
-              <Text className="text-sm text-zinc-700">{actionMessage}</Text>
-            </View>
-          ) : (
-            <View className="rounded-md px-3 py-2 opacity-0">
-              <Text className="text-sm">placeholder</Text>
-            </View>
-          )}
-        </View>
-        {bootstrapError ? (
-          <View className="px-4 pb-2">
-            <Text className="text-sm text-red-600">{bootstrapError}</Text>
+        {bootstrapError && feedItems.length > 0 ? (
+          <View className="mx-4 mb-2 flex-row items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+            <Text className="flex-1 pr-3 text-sm text-amber-900" numberOfLines={2}>
+              {bootstrapError}
+            </Text>
+            <Pressable onPress={onRefresh} hitSlop={8}>
+              <Text className="text-sm font-medium text-amber-900">Retry</Text>
+            </Pressable>
           </View>
         ) : null}
         <View className="relative flex-1 px-2">
@@ -633,36 +713,58 @@ export default function SwipeScreen() {
               }}
             />
           </View>
-          {feedLoading && feedItems.length === 0 ? (
+          {(feedLoading || preparingFeed) && feedItems.length === 0 ? (
             <View className="absolute inset-0 items-center justify-center bg-white/90 px-6">
-              <ActivityIndicator size="large" />
+              <ActivityIndicator size="large" color="#1f7a5c" />
               <Text className="mt-4 text-center text-base font-medium text-zinc-900">
-                Building your feed…
+                {preparingFeed
+                  ? "Getting your recommendations ready…"
+                  : "Finding great gifts…"}
               </Text>
               <Text className="mt-2 text-center text-sm text-zinc-600">
-                This can take a minute on a cold server or right after the database
-                was reset. Saved items load from history; new cards need the catalog
-                to warm up.
+                {preparingFeed
+                  ? "You’re the first to pick some of these interests, so we’re building fresh ideas. This can take a couple of minutes."
+                  : "We’re matching ideas to this person’s interests. This can take a moment the first time."}
               </Text>
+            </View>
+          ) : null}
+          {!feedLoading && !preparingFeed && feedItems.length === 0 ? (
+            <View className="absolute inset-0 items-center justify-center px-8">
+              <View className="h-14 w-14 items-center justify-center rounded-full bg-zinc-100">
+                <Bookmark size={24} color="#1f7a5c" strokeWidth={1.5} />
+              </View>
+              <Text className="mt-4 text-center text-lg font-noto-serif-bold text-zinc-900">
+                {bootstrapError ? "Something went wrong" : "No gifts to show yet"}
+              </Text>
+              <Text className="mt-2 text-center text-sm leading-relaxed text-zinc-600">
+                {bootstrapError ??
+                  "We couldn’t find recommendations for this person right now. Pull to refresh, or tweak their interests and budget."}
+              </Text>
+              <View className="mt-5 flex-row gap-3">
+                <Pressable
+                  onPress={onRefresh}
+                  className="rounded-full bg-[#1f7a5c] px-5 py-2.5"
+                >
+                  <Text className="font-sf-display-medium text-white">Refresh</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => router.push("/feed/settings")}
+                  className="rounded-full border border-zinc-300 px-5 py-2.5"
+                >
+                  <Text className="font-sf-display-medium text-zinc-900">
+                    Edit interests
+                  </Text>
+                </Pressable>
+              </View>
             </View>
           ) : null}
           {feedLoading && feedItems.length > 0 ? (
-            <View className="px-3 pb-2">
-              <Text className="text-sm text-zinc-600">Loading next recommendation...</Text>
+            <View className="absolute bottom-3 self-center rounded-full bg-zinc-900/80 px-3 py-1">
+              <Text className="text-xs font-sf-display-medium text-white">Loading more…</Text>
             </View>
           ) : null}
-          <LinearGradient
-            colors={["rgba(0,0,0,0.15)", "transparent"]}
-            className="absolute left-0 right-0 top-0 h-3"
-            pointerEvents="none"
-          />
-          <LinearGradient
-            colors={["transparent", "rgba(0,0,0,0.15)"]}
-            className="absolute left-0 right-0 bottom-0 h-3"
-            pointerEvents="none"
-          />
         </View>
-        <View className="w-full flex-row items-center px-2 pt-2 pb-1">
+        <View className="w-full flex-row items-center border-t border-zinc-100 px-2 pt-2 pb-1">
           <Pressable
             className="flex-1 items-center py-1"
             accessibilityRole="button"
@@ -712,39 +814,56 @@ export default function SwipeScreen() {
       >
         <BottomSheetView className="flex-1 p-4">
           <ThemedText fontStyle="serif" fontWeight="bold" className="text-lg">
-            Switch Feed
+            Who are you shopping for?
           </ThemedText>
           <ThemedText className="mt-2 text-zinc-500">
-            Choose a person/feed to view different recommendations.
+            Switch between the people on your gift lists.
           </ThemedText>
-          <View className="mt-4 gap-2">
+          <View className="mt-5 gap-2.5">
             {availableFeeds.map((feed) => {
               const isActive = feed.name === activeFeedName;
               return (
                 <Pressable
                   key={feed.id}
-                  className="rounded-md border px-3 py-3"
+                  className="flex-row items-center justify-between rounded-2xl border px-4 py-3.5"
                   style={{
-                    borderColor: isActive ? "#1f7a5c" : "#d4d4d8",
-                    backgroundColor: isActive ? "rgba(31,122,92,0.08)" : "white",
+                    borderColor: isActive ? "#1f7a5c" : "#e4e4e7",
+                    backgroundColor: isActive ? "rgba(31,122,92,0.06)" : "white",
                   }}
                   onPress={() => switchToFeed(feed)}
                 >
-                  <Text className="text-base text-zinc-900">{feed.name}</Text>
-                  <Text className="text-xs text-zinc-500">
-                    Profile {isActive ? "• Current" : ""}
-                  </Text>
+                  <View className="flex-1 pr-3">
+                    <Text className="text-base font-sf-display-semibold text-zinc-900">
+                      {feed.name}
+                    </Text>
+                    <Text className="mt-0.5 text-[13px] text-zinc-500" numberOfLines={1}>
+                      {isActive
+                        ? "Currently viewing"
+                        : feed.interests.slice(0, 3).join(" · ") || "Tap to view"}
+                    </Text>
+                  </View>
+                  {isActive ? (
+                    <View
+                      className="h-6 w-6 items-center justify-center rounded-full"
+                      style={{ backgroundColor: "#1f7a5c" }}
+                    >
+                      <Check size={14} color="white" strokeWidth={3} />
+                    </View>
+                  ) : null}
                 </Pressable>
               );
             })}
             <Pressable
-              className="mt-3 rounded-md bg-black px-3 py-3"
+              className="mt-3 h-14 flex-row items-center justify-center gap-2 rounded-full bg-zinc-900"
               onPress={() => {
                 bottomSheetRef.current?.close();
                 router.push("/feed/new");
               }}
             >
-              <Text className="text-center text-white">Add feed</Text>
+              <Plus size={18} color="white" strokeWidth={2.5} />
+              <Text className="text-center font-sf-display-semibold text-[16px] text-white">
+                Add someone
+              </Text>
             </Pressable>
           </View>
         </BottomSheetView>

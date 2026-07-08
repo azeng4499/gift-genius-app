@@ -5,15 +5,12 @@ export type UserContextState = {
   profileId: string | null;
   /** Active feed session id (UUID) for GET /feed/:session_id. */
   sessionId: string | null;
-  /** Backend JWT from POST /auth/token. */
-  accessToken: string | null;
 };
 
 const userContextState: UserContextState = {
   userId: null,
   profileId: null,
   sessionId: null,
-  accessToken: null,
 };
 
 const listeners = new Set<(state: UserContextState) => void>();
@@ -53,7 +50,6 @@ export function clearUserContext() {
   userContextState.userId = null;
   userContextState.profileId = null;
   userContextState.sessionId = null;
-  userContextState.accessToken = null;
   notifyListeners();
 }
 
@@ -72,15 +68,6 @@ export function getCurrentProfileId() {
 
 export function getCurrentSessionId() {
   return userContextState.sessionId;
-}
-
-export function setAccessToken(accessToken: string | null) {
-  userContextState.accessToken = accessToken;
-  notifyListeners();
-}
-
-export function getAccessToken() {
-  return userContextState.accessToken;
 }
 
 export function subscribeUserContext(

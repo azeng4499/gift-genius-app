@@ -1,8 +1,9 @@
+import { FontAwesome } from "@expo/vector-icons";
 import { useSSO } from "@clerk/clerk-expo";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
 import { useState } from "react";
-import { ActivityIndicator, Pressable, Text } from "react-native";
+import { ActivityIndicator, Pressable, Text, View } from "react-native";
 
 // Must run at module top so the in-app browser session can complete when
 // the OAuth provider redirects back via the deep link.
@@ -45,19 +46,30 @@ export function SsoButton({ strategy, label, onError }: SsoButtonProps) {
     }
   };
 
+  const isApple = strategy === "oauth_apple";
+
   return (
     <Pressable
       onPress={onPress}
       disabled={busy}
       accessibilityRole="button"
       accessibilityLabel={label}
-      className="rounded-md border border-zinc-300 px-4 py-3"
+      className="h-14 flex-row items-center justify-center rounded-full border border-zinc-300 px-4"
       style={{ opacity: busy ? 0.6 : 1 }}
     >
       {busy ? (
         <ActivityIndicator color="#18181b" />
       ) : (
-        <Text className="text-center text-zinc-900">{label}</Text>
+        <View className="flex-row items-center justify-center gap-2.5">
+          <FontAwesome
+            name={isApple ? "apple" : "google"}
+            size={isApple ? 19 : 17}
+            color={isApple ? "#000000" : "#4285F4"}
+          />
+          <Text className="font-sf-display-medium text-[15px] text-zinc-900">
+            {label}
+          </Text>
+        </View>
       )}
     </Pressable>
   );

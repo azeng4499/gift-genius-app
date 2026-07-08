@@ -3,7 +3,7 @@ import * as SecureStore from "expo-secure-store";
 import type { createGiftGeniusApiClient, HobbyDto } from "./client";
 import { getGiftGeniusApiBaseUrl, isLocalDevApiHost } from "./config";
 
-const HOBBY_CACHE_KEY = "gg_hobby_catalog_v1";
+const HOBBY_CACHE_KEY = "gg_hobby_catalog_v2";
 
 type ApiClient = ReturnType<typeof createGiftGeniusApiClient>;
 
@@ -32,9 +32,8 @@ export async function cacheHobbies(hobbies: HobbyDto[]): Promise<void> {
 }
 
 export async function ensureHobbyCatalog(api: ApiClient): Promise<HobbyDto[]> {
-  const cached = await readCachedHobbies();
-  if (cached?.length) return cached;
-
+  // Network-first: the catalog changes (and hobby IDs churn on a taxonomy
+  // re-sync), so always prefer live data. The cache is only an offline fallback.
   try {
     const hobbies = await api.listHobbiesAuth();
     if (hobbies.length > 0) {
@@ -42,7 +41,7 @@ export async function ensureHobbyCatalog(api: ApiClient): Promise<HobbyDto[]> {
       return hobbies;
     }
   } catch {
-    /* GET /hobbies may not be deployed yet */
+    /* GET /hobbies may not be deployed yet — fall through */
   }
 
   if (isLocalDevApiHost(getGiftGeniusApiBaseUrl())) {
@@ -56,6 +55,10 @@ export async function ensureHobbyCatalog(api: ApiClient): Promise<HobbyDto[]> {
       /* local admin unavailable */
     }
   }
+
+  // Backend unreachable — use the last known catalog if we have one.
+  const cached = await readCachedHobbies();
+  if (cached?.length) return cached;
 
   const fromEnv = parseHobbyIdsFromEnv();
   if (fromEnv.length > 0) {
