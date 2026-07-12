@@ -14,8 +14,9 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import ProductCardChip from "@/components/product-card/components/product-card-chip";
 import { getApiClient } from "@/lib/api";
+import { loadProfilesForUser } from "@/lib/api/bootstrap";
 import { savedItemToBookmarkItem, type BookmarkItemDto } from "@/lib/api/mappers";
-import { getCurrentFeedId } from "@/lib/state/user-context";
+import { getCurrentFeedId, getCurrentUserId } from "@/lib/state/user-context";
 
 function formatPrice(item: BookmarkItemDto): string {
   if (item.priceCents == null || !item.currency) return "Price unavailable";
@@ -85,14 +86,17 @@ export default function BookmarksScreen() {
   const api = useMemo(() => getApiClient(), []);
 
   const [items, setItems] = useState<BookmarkItemDto[]>([]);
+  const [feedName, setFeedName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const loadSavedItems = useCallback(async (isRefresh = false) => {
     const profileId = getCurrentFeedId();
+    const userId = getCurrentUserId();
     if (!profileId) {
       setItems([]);
+      setFeedName(null);
       setError("Set up a recipient first to start saving gifts.");
       setLoading(false);
       setRefreshing(false);
@@ -107,12 +111,17 @@ export default function BookmarksScreen() {
     setError(null);
 
     try {
-      const response = await api.getSavedItems(profileId);
+      const [response, profiles] = await Promise.all([
+        api.getSavedItems(profileId),
+        userId ? loadProfilesForUser(api, userId) : Promise.resolve([]),
+      ]);
       setItems(response.items.map(savedItemToBookmarkItem));
+      setFeedName(profiles.find((feed) => feed.id === profileId)?.name ?? null);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to load saved items.";
       setError(message);
       setItems([]);
+      setFeedName(null);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -125,14 +134,17 @@ export default function BookmarksScreen() {
     }, [loadSavedItems])
   );
 
+  const headerTitle = feedName ? `${feedName}'s saved gifts` : "Bookmarked Items";
+  const headerSubtitle = feedName
+    ? `Gifts you bookmarked while browsing ${feedName}'s feed`
+    : "Saved products for the currently selected feed.";
+
   return (
     <SafeAreaView className="flex-1 bg-white" edges={["bottom"]}>
       <View className="flex-1 px-4">
         <View className="pb-3 pt-2">
-          <Text className="text-xl font-noto-serif-bold">Bookmarked Items</Text>
-          <Text className="text-sm text-zinc-600">
-            Saved products for the currently selected profile.
-          </Text>
+          <Text className="text-xl font-noto-serif-bold">{headerTitle}</Text>
+          <Text className="mt-1 text-sm text-zinc-600">{headerSubtitle}</Text>
         </View>
 
         {loading ? (
@@ -155,7 +167,9 @@ export default function BookmarksScreen() {
           <View className="rounded-xl border border-zinc-200 bg-zinc-50 p-4">
             <Text className="text-sm font-medium text-zinc-900">Nothing saved yet</Text>
             <Text className="mt-2 text-sm text-zinc-600">
-              Tap the bookmark icon on a gift card in your feed to save it here.
+              {feedName
+                ? `Tap the bookmark icon on a gift in ${feedName}'s feed to save it here.`
+                : "Tap the bookmark icon on a gift card in your feed to save it here."}
             </Text>
           </View>
         ) : null}
