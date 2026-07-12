@@ -24,7 +24,9 @@ import { PrimaryButton } from "@/components/ui/primary-button";
 import { TextField } from "@/components/ui/text-field";
 import {
   formatOccasionLabel,
+  formatRelationshipLabel,
   OCCASION_OPTIONS,
+  RELATIONSHIP_OPTIONS,
   parseOptionalNumber,
 } from "@/lib/feed-form-shared";
 import { useToast } from "@/components/ui/toast";
@@ -33,6 +35,7 @@ export default function NewFeedScreen() {
   const { onboarding } = useLocalSearchParams<{ onboarding?: string }>();
   const isOnboarding = onboarding === "1";
   const [name, setName] = useState("");
+  const [relationship, setRelationship] = useState("");
   const [occasion, setOccasion] = useState("");
   const [hobbyIds, setHobbyIds] = useState<string[]>([]);
   const [budgetMin, setBudgetMin] = useState("");
@@ -76,6 +79,7 @@ export default function NewFeedScreen() {
         budget_min: parsedMin,
         budget_max: parsedMax,
         occasion: backendOccasion,
+        relationship: relationship || null,
       });
 
       await addStoredProfileId(userId, created.id);
@@ -143,6 +147,38 @@ export default function NewFeedScreen() {
             onChangeText={setName}
             placeholder="e.g. Mom, Jamie"
           />
+
+          <LabeledFeedField
+            label="Relationship"
+            hint="Optional — gives gift ideas a slight nudge. Interests still matter most."
+          >
+            <View className="flex-row flex-wrap gap-2">
+              {RELATIONSHIP_OPTIONS.map((option) => {
+                const isSelected = relationship === option;
+                return (
+                  <Pressable
+                    key={option}
+                    onPress={() => setRelationship(isSelected ? "" : option)}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: isSelected }}
+                    className={`rounded-full border px-4 py-2 ${
+                      isSelected
+                        ? "border-[#1f7a5c] bg-[#1f7a5c]"
+                        : "border-zinc-300 bg-white"
+                    }`}
+                  >
+                    <Text
+                      className={`font-sf-display-medium text-sm ${
+                        isSelected ? "text-white" : "text-zinc-700"
+                      }`}
+                    >
+                      {formatRelationshipLabel(option)}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </LabeledFeedField>
 
           <LabeledFeedField
             label="Occasion"

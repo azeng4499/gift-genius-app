@@ -4,6 +4,7 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
   ScrollView,
   Text,
   View,
@@ -17,6 +18,10 @@ import { HobbyChipPicker } from "@/components/feed-form/hobby-chip-picker";
 import { LabeledFeedField } from "@/components/feed-form/labeled-feed-field";
 import { PrimaryButton } from "@/components/ui/primary-button";
 import { TextField } from "@/components/ui/text-field";
+import {
+  formatRelationshipLabel,
+  RELATIONSHIP_OPTIONS,
+} from "@/lib/feed-form-shared";
 import { getCurrentFeedId } from "@/lib/state/user-context";
 import { useToast } from "@/components/ui/toast";
 
@@ -30,6 +35,8 @@ function parseBudgetOrNull(value: string): number | null | "invalid" {
 export default function FeedSettingsScreen() {
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState("");
+  const [relationship, setRelationship] = useState("");
+  const [initialRelationship, setInitialRelationship] = useState("");
   const [hobbyIds, setHobbyIds] = useState<string[]>([]);
   const [initialHobbyIds, setInitialHobbyIds] = useState<string[]>([]);
   const [budgetMin, setBudgetMin] = useState("");
@@ -69,6 +76,9 @@ export default function FeedSettingsScreen() {
         (detail.hobbies ?? []).map((h) => [h.id, h.name])
       );
       setName(feed.name);
+      const rel = detail.relationship ?? "";
+      setRelationship(rel);
+      setInitialRelationship(rel);
       setBudgetMin(feed.budgetMin != null ? String(feed.budgetMin) : "");
       setBudgetMax(feed.budgetMax != null ? String(feed.budgetMax) : "");
     } catch (e) {
@@ -116,6 +126,8 @@ export default function FeedSettingsScreen() {
     const interestsChanged =
       removedIds.length > 0 ||
       hobbyIds.some((id) => !initialHobbyIds.includes(id));
+    const relationshipChanged = relationship !== initialRelationship;
+    const shouldRefreshFeed = interestsChanged || relationshipChanged;
 
     setSubmitting(true);
     setError(null);
@@ -126,6 +138,7 @@ export default function FeedSettingsScreen() {
         hobby_ids: hobbyIds,
         budget_min: minParsed ?? undefined,
         budget_max: maxParsed ?? undefined,
+        relationship: relationship || null,
       });
 
       if (removedIds.length === 1) {
@@ -143,7 +156,7 @@ export default function FeedSettingsScreen() {
         toast.show({ message: "Changes saved", variant: "success" });
       }
 
-      if (interestsChanged) {
+      if (shouldRefreshFeed) {
         router.replace({
           pathname: "/",
           params: { refreshFeedKey: String(Date.now()) },
@@ -189,7 +202,7 @@ export default function FeedSettingsScreen() {
               Edit this person
             </Text>
             <Text className="text-[15px] leading-relaxed text-zinc-500">
-              Update their name, interests, and budget to fine-tune gift ideas.
+              Update their name, relationship, interests, and budget to fine-tune gift ideas.
             </Text>
           </View>
 
@@ -199,6 +212,38 @@ export default function FeedSettingsScreen() {
             onChangeText={setName}
             placeholder="e.g. Mom, Jamie"
           />
+
+          <LabeledFeedField
+            label="Relationship"
+            hint="Optional — slight nudge only. Interests still drive most recommendations."
+          >
+            <View className="flex-row flex-wrap gap-2">
+              {RELATIONSHIP_OPTIONS.map((option) => {
+                const isSelected = relationship === option;
+                return (
+                  <Pressable
+                    key={option}
+                    onPress={() => setRelationship(isSelected ? "" : option)}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: isSelected }}
+                    className={`rounded-full border px-4 py-2 ${
+                      isSelected
+                        ? "border-[#1f7a5c] bg-[#1f7a5c]"
+                        : "border-zinc-300 bg-white"
+                    }`}
+                  >
+                    <Text
+                      className={`font-sf-display-medium text-sm ${
+                        isSelected ? "text-white" : "text-zinc-700"
+                      }`}
+                    >
+                      {formatRelationshipLabel(option)}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </LabeledFeedField>
 
           <LabeledFeedField
             label="Interests"

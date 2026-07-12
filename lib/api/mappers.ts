@@ -42,11 +42,11 @@ export function profileToFeedDto(profile: ProfileDetailDto): FeedDto {
     name: profile.label,
     ageMin: null,
     ageMax: null,
-    relationship: null,
+    relationship: profile.relationship ?? null,
     interests: profile.hobbies?.map((h) => h.name) ?? [],
     budgetMin: profile.budget_min,
     budgetMax: profile.budget_max,
-    occasion: null,
+    occasion: profile.occasion ?? null,
     tagWeights: {},
     createdAt: profile.created_at ?? null,
   };

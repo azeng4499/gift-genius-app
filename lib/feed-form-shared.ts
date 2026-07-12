@@ -14,16 +14,45 @@ export function formatOccasionLabel(value: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+const RELATIONSHIP_LABELS: Record<string, string> = {
+  mom: "Mom",
+  dad: "Dad",
+  partner: "Partner",
+  boyfriend: "Boyfriend",
+  girlfriend: "Girlfriend",
+  spouse: "Spouse",
+  friend: "Friend",
+  best_friend: "Best friend",
+  sibling: "Sibling",
+  grandparent: "Grandparent",
+  coworker: "Coworker",
+  boss: "Boss",
+  child: "Child",
+  niece_nephew: "Niece / nephew",
+  acquaintance: "Acquaintance",
+  other: "Other",
+};
+
+export function formatRelationshipLabel(value: string): string {
+  return RELATIONSHIP_LABELS[value] ?? formatOccasionLabel(value);
+}
+
 export const RELATIONSHIP_OPTIONS = [
   "mom",
   "dad",
   "partner",
+  "boyfriend",
+  "girlfriend",
   "spouse",
   "friend",
+  "best_friend",
   "sibling",
   "grandparent",
   "coworker",
+  "boss",
   "child",
+  "niece_nephew",
+  "acquaintance",
   "other",
 ] as const;
 

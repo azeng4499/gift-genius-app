@@ -59,6 +59,8 @@ export type ProfileDto = {
   hobby_ids: string[];
   budget_min: number;
   budget_max: number;
+  occasion?: string | null;
+  relationship?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -327,6 +329,7 @@ export function createGiftGeniusApiClient(config: ApiClientConfig) {
       budget_min: number;
       budget_max: number;
       occasion?: string;
+      relationship?: string | null;
     }): Promise<ProfileDto> {
       return request<ProfileDto>("/profiles", {
         method: "POST",
@@ -349,6 +352,7 @@ export function createGiftGeniusApiClient(config: ApiClientConfig) {
         budget_min?: number;
         budget_max?: number;
         occasion?: string;
+        relationship?: string | null;
       }
     ): Promise<ProfileDto> {
       return request<ProfileDto>(`/profiles/${encodeURIComponent(profileId)}`, {
