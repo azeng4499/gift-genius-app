@@ -99,6 +99,8 @@ export type FeedItemDto = {
   category: string;
   slot_type: "interest" | "adjacent" | "wildcard" | "occasion";
   hobby_id: string | null;
+  /** Display name for hobby_id when present. */
+  hobby_name?: string | null;
   angle: string | null;
   score: number;
 };
@@ -125,6 +127,7 @@ export type SavedItemDto = {
   product_url: string;
   slot_type: FeedItemDto["slot_type"] | string | null;
   hobby_id: string | null;
+  hobby_name?: string | null;
   angle: string | null;
   saved_at: string | null;
 };
