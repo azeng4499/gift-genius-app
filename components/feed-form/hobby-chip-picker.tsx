@@ -7,6 +7,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { X } from "lucide-react-native";
 
 import { getApiClient } from "@/lib/api";
 import type { HobbyDto } from "@/lib/api/client";
@@ -45,6 +46,14 @@ export function HobbyChipPicker({ selectedIds, onChange }: HobbyChipPickerProps)
 
   const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
 
+  const selectedHobbies = useMemo(() => {
+    if (!catalog) return [];
+    const byId = new Map(catalog.map((h) => [h.id, h]));
+    return selectedIds
+      .map((id) => byId.get(id))
+      .filter((h): h is HobbyDto => h != null);
+  }, [catalog, selectedIds]);
+
   const filtered = useMemo(() => {
     if (!catalog) return [];
     const q = query.trim().toLowerCase();
@@ -58,6 +67,10 @@ export function HobbyChipPicker({ selectedIds, onChange }: HobbyChipPickerProps)
     } else {
       onChange([...selectedIds, id]);
     }
+  }
+
+  function remove(id: string) {
+    onChange(selectedIds.filter((x) => x !== id));
   }
 
   if (loadError) {
@@ -83,6 +96,29 @@ export function HobbyChipPicker({ selectedIds, onChange }: HobbyChipPickerProps)
         accessibilityLabel="Search interests"
         className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 font-sf-display-regular text-[15px] text-zinc-900"
       />
+      {selectedHobbies.length > 0 ? (
+        <View className="flex-row flex-wrap gap-2">
+          {selectedHobbies.map((hobby) => (
+            <View
+              key={hobby.id}
+              className="flex-row items-center gap-1 rounded-full border border-[#1f7a5c] bg-[#1f7a5c] py-1.5 pl-3.5 pr-1.5"
+            >
+              <Text className="font-sf-display-medium text-sm text-white">
+                {hobby.name}
+              </Text>
+              <Pressable
+                onPress={() => remove(hobby.id)}
+                accessibilityRole="button"
+                accessibilityLabel={`Remove ${hobby.name}`}
+                hitSlop={8}
+                className="rounded-full p-0.5 active:opacity-70"
+              >
+                <X size={14} color="white" strokeWidth={2.5} />
+              </Pressable>
+            </View>
+          ))}
+        </View>
+      ) : null}
       <ScrollView
         className="max-h-56 rounded-2xl border border-zinc-200 bg-zinc-50"
         contentContainerClassName="flex-row flex-wrap gap-2 p-3"
