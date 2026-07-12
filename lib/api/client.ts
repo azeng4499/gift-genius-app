@@ -358,6 +358,17 @@ export function createGiftGeniusApiClient(config: ApiClientConfig) {
       });
     },
 
+    /** Remove one interest from a profile (also penalizes its weights). */
+    async removeInterest(
+      profileId: string,
+      hobbyId: string
+    ): Promise<{ profile: ProfileDto; removed_hobby_id: string }> {
+      return request<{ profile: ProfileDto; removed_hobby_id: string }>(
+        `/profiles/${encodeURIComponent(profileId)}/interests/${encodeURIComponent(hobbyId)}`,
+        { method: "DELETE", requiresAuth: true }
+      );
+    },
+
     /** Start a feed session. Omit `occasion` to use the profile's saved one. */
     async createSession(
       profileId: string,

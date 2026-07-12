@@ -92,6 +92,7 @@ export default function SwipeScreen() {
     refreshKey?: string;
     selectedFeedId?: string;
     reconnectKey?: string;
+    refreshFeedKey?: string;
   }>();
   const [feedItems, setFeedItems] = useState<QueueItemDto[]>([]);
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
@@ -308,6 +309,36 @@ export default function SwipeScreen() {
 
     refreshAfterCreate();
   }, [api, params.refreshKey, params.selectedFeedId, switchToFeed]);
+
+  // Reload feed after interest changes in feed settings.
+  useEffect(() => {
+    if (!params.refreshFeedKey) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const profileId = getCurrentFeedId();
+        if (profileId) {
+          await startSessionForProfile(api, profileId);
+        }
+        if (cancelled) return;
+        await resetAndLoadFeedCards();
+        if (!cancelled) {
+          setBootstrapError(null);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setBootstrapError(
+            friendlyErrorMessage(error, "Couldn't refresh your feed.")
+          );
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [api, params.refreshFeedKey, resetAndLoadFeedCards]);
 
   const advanceToNextCard = useCallback(async () => {
     const nextIndex = currentCardIndex + 1;

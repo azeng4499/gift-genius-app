@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   ScrollView,
   Text,
@@ -16,10 +17,16 @@ import { ensureHobbyCatalog } from "@/lib/api/hobbies";
 type HobbyChipPickerProps = {
   selectedIds: string[];
   onChange: (ids: string[]) => void;
+  /** When true, confirm before removing a selected interest (feed settings). */
+  confirmOnRemove?: boolean;
 };
 
 /** Searchable multi-select of hobbies rendered as toggleable chips. */
-export function HobbyChipPicker({ selectedIds, onChange }: HobbyChipPickerProps) {
+export function HobbyChipPicker({
+  selectedIds,
+  onChange,
+  confirmOnRemove = false,
+}: HobbyChipPickerProps) {
   const api = useMemo(() => getApiClient(), []);
   const [catalog, setCatalog] = useState<HobbyDto[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -61,16 +68,36 @@ export function HobbyChipPicker({ selectedIds, onChange }: HobbyChipPickerProps)
     return catalog.filter((h) => h.name.toLowerCase().includes(q));
   }, [catalog, query]);
 
-  function toggle(id: string) {
-    if (selected.has(id)) {
-      onChange(selectedIds.filter((x) => x !== id));
-    } else {
-      onChange([...selectedIds, id]);
-    }
+  function applyRemove(id: string) {
+    onChange(selectedIds.filter((x) => x !== id));
   }
 
-  function remove(id: string) {
-    onChange(selectedIds.filter((x) => x !== id));
+  function confirmAndRemove(hobby: HobbyDto) {
+    if (!confirmOnRemove) {
+      applyRemove(hobby.id);
+      return;
+    }
+
+    Alert.alert(
+      `Remove ${hobby.name}?`,
+      "You won't see gift ideas for this interest until you add it back in settings.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: () => applyRemove(hobby.id),
+        },
+      ]
+    );
+  }
+
+  function toggle(hobby: HobbyDto) {
+    if (selected.has(hobby.id)) {
+      confirmAndRemove(hobby);
+    } else {
+      onChange([...selectedIds, hobby.id]);
+    }
   }
 
   if (loadError) {
@@ -107,7 +134,7 @@ export function HobbyChipPicker({ selectedIds, onChange }: HobbyChipPickerProps)
                 {hobby.name}
               </Text>
               <Pressable
-                onPress={() => remove(hobby.id)}
+                onPress={() => confirmAndRemove(hobby)}
                 accessibilityRole="button"
                 accessibilityLabel={`Remove ${hobby.name}`}
                 hitSlop={8}
@@ -133,7 +160,7 @@ export function HobbyChipPicker({ selectedIds, onChange }: HobbyChipPickerProps)
             return (
               <Pressable
                 key={hobby.id}
-                onPress={() => toggle(hobby.id)}
+                onPress={() => toggle(hobby)}
                 accessibilityRole="button"
                 accessibilityState={{ selected: isSelected }}
                 accessibilityLabel={hobby.name}

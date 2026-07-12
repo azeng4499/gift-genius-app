@@ -1,5 +1,5 @@
 import { router, Stack } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -31,14 +31,22 @@ export default function FeedSettingsScreen() {
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState("");
   const [hobbyIds, setHobbyIds] = useState<string[]>([]);
+  const [initialHobbyIds, setInitialHobbyIds] = useState<string[]>([]);
   const [budgetMin, setBudgetMin] = useState("");
   const [budgetMax, setBudgetMax] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [interestsError, setInterestsError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [feedSnapshot, setFeedSnapshot] = useState<FeedDto | null>(null);
+  const hobbyNamesRef = useRef<Map<string, string>>(new Map());
 
   const api = useMemo(() => getApiClient(), []);
   const toast = useToast();
+
+  const onHobbyIdsChange = useCallback((ids: string[]) => {
+    setHobbyIds(ids);
+    if (ids.length > 0) setInterestsError(null);
+  }, []);
 
   const loadFeed = useCallback(async () => {
     const profileId = getCurrentFeedId();
@@ -50,16 +58,21 @@ export default function FeedSettingsScreen() {
 
     setLoading(true);
     setError(null);
+    setInterestsError(null);
     try {
       const detail = await api.getProfile(profileId);
       const feed = profileToFeedDto(detail);
       setFeedSnapshot(feed);
       setHobbyIds(detail.hobby_ids);
+      setInitialHobbyIds(detail.hobby_ids);
+      hobbyNamesRef.current = new Map(
+        (detail.hobbies ?? []).map((h) => [h.id, h.name])
+      );
       setName(feed.name);
       setBudgetMin(feed.budgetMin != null ? String(feed.budgetMin) : "");
       setBudgetMax(feed.budgetMax != null ? String(feed.budgetMax) : "");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn’t load this list.");
+      setError(e instanceof Error ? e.message : "Couldn't load this list.");
     } finally {
       setLoading(false);
     }
@@ -88,16 +101,25 @@ export default function FeedSettingsScreen() {
       return;
     }
     if (minParsed != null && maxParsed != null && minParsed > maxParsed) {
-      setError("Min budget can’t be more than max budget.");
+      setError("Min budget can't be more than max budget.");
       return;
     }
     if (hobbyIds.length === 0) {
-      setError("Pick at least one interest.");
+      setInterestsError(
+        "Keep at least one interest so we know what gifts to recommend."
+      );
+      setError(null);
       return;
     }
 
+    const removedIds = initialHobbyIds.filter((id) => !hobbyIds.includes(id));
+    const interestsChanged =
+      removedIds.length > 0 ||
+      hobbyIds.some((id) => !initialHobbyIds.includes(id));
+
     setSubmitting(true);
     setError(null);
+    setInterestsError(null);
     try {
       await api.updateProfile(profileId, {
         label: trimmedName,
@@ -105,13 +127,35 @@ export default function FeedSettingsScreen() {
         budget_min: minParsed ?? undefined,
         budget_max: maxParsed ?? undefined,
       });
-      toast.show({ message: "Changes saved", variant: "success" });
-      router.back();
+
+      if (removedIds.length === 1) {
+        const label = hobbyNamesRef.current.get(removedIds[0]) ?? "Interest";
+        toast.show({
+          message: `${label} removed — showing other interests instead`,
+          variant: "success",
+        });
+      } else if (removedIds.length > 1) {
+        toast.show({
+          message: `${removedIds.length} interests removed from this list`,
+          variant: "success",
+        });
+      } else {
+        toast.show({ message: "Changes saved", variant: "success" });
+      }
+
+      if (interestsChanged) {
+        router.replace({
+          pathname: "/",
+          params: { refreshFeedKey: String(Date.now()) },
+        });
+      } else {
+        router.back();
+      }
     } catch (submitError) {
       setError(
         submitError instanceof Error
           ? submitError.message
-          : "Couldn’t save changes. Please try again."
+          : "Couldn't save changes. Please try again."
       );
     } finally {
       setSubmitting(false);
@@ -158,9 +202,16 @@ export default function FeedSettingsScreen() {
 
           <LabeledFeedField
             label="Interests"
-            hint="Interests we use to pick gifts. Tap to add or remove."
+            hint="Tap X to remove an interest from this feed. You can add it back anytime."
           >
-            <HobbyChipPicker selectedIds={hobbyIds} onChange={setHobbyIds} />
+            <HobbyChipPicker
+              selectedIds={hobbyIds}
+              onChange={onHobbyIdsChange}
+              confirmOnRemove
+            />
+            {interestsError ? (
+              <Text className="mt-1 text-sm text-red-600">{interestsError}</Text>
+            ) : null}
           </LabeledFeedField>
 
           <View className="flex-row gap-3">
