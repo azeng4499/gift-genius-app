@@ -390,8 +390,6 @@ export default function SwipeScreen() {
 
         if (type === "save") {
           toast.show({ message: "Saved to your list", variant: "saved" });
-        } else if (type === "pass") {
-          toast.show({ message: "Skipped", variant: "info" });
         } else if (type === "dislike") {
           toast.show({
             message: "Got it — we’ll show fewer like this",
