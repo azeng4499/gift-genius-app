@@ -13,13 +13,19 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { type FeedDto } from "@/lib/api/client";
 import { getApiClient } from "@/lib/api";
-import { profileToFeedDto } from "@/lib/api/mappers";
+import {
+  fromBackendOccasion,
+  profileToFeedDto,
+  toBackendOccasion,
+} from "@/lib/api/mappers";
 import { HobbyChipPicker } from "@/components/feed-form/hobby-chip-picker";
 import { LabeledFeedField } from "@/components/feed-form/labeled-feed-field";
 import { PrimaryButton } from "@/components/ui/primary-button";
 import { TextField } from "@/components/ui/text-field";
 import {
+  formatOccasionLabel,
   formatRelationshipLabel,
+  OCCASION_OPTIONS,
   RELATIONSHIP_OPTIONS,
 } from "@/lib/feed-form-shared";
 import { getCurrentFeedId } from "@/lib/state/user-context";
@@ -37,6 +43,8 @@ export default function FeedSettingsScreen() {
   const [name, setName] = useState("");
   const [relationship, setRelationship] = useState("");
   const [initialRelationship, setInitialRelationship] = useState("");
+  const [occasion, setOccasion] = useState("");
+  const [initialOccasion, setInitialOccasion] = useState("");
   const [hobbyIds, setHobbyIds] = useState<string[]>([]);
   const [initialHobbyIds, setInitialHobbyIds] = useState<string[]>([]);
   const [budgetMin, setBudgetMin] = useState("");
@@ -79,6 +87,9 @@ export default function FeedSettingsScreen() {
       const rel = detail.relationship ?? "";
       setRelationship(rel);
       setInitialRelationship(rel);
+      const occ = fromBackendOccasion(detail.occasion);
+      setOccasion(occ);
+      setInitialOccasion(occ);
       setBudgetMin(feed.budgetMin != null ? String(feed.budgetMin) : "");
       setBudgetMax(feed.budgetMax != null ? String(feed.budgetMax) : "");
     } catch (e) {
@@ -127,7 +138,11 @@ export default function FeedSettingsScreen() {
       removedIds.length > 0 ||
       hobbyIds.some((id) => !initialHobbyIds.includes(id));
     const relationshipChanged = relationship !== initialRelationship;
-    const shouldRefreshFeed = interestsChanged || relationshipChanged;
+    const nextOccasion = toBackendOccasion(occasion);
+    const occasionChanged =
+      nextOccasion !== toBackendOccasion(initialOccasion || "just_because");
+    const shouldRefreshFeed =
+      interestsChanged || relationshipChanged || occasionChanged;
 
     setSubmitting(true);
     setError(null);
@@ -139,6 +154,7 @@ export default function FeedSettingsScreen() {
         budget_min: minParsed ?? undefined,
         budget_max: maxParsed ?? undefined,
         relationship: relationship || null,
+        occasion: nextOccasion,
       });
 
       if (removedIds.length === 1) {
@@ -202,7 +218,7 @@ export default function FeedSettingsScreen() {
               Edit this person
             </Text>
             <Text className="text-[15px] leading-relaxed text-zinc-500">
-              Update their name, relationship, interests, and budget to fine-tune gift ideas.
+              Update their name, relationship, occasion, interests, and budget.
             </Text>
           </View>
 
@@ -238,6 +254,38 @@ export default function FeedSettingsScreen() {
                       }`}
                     >
                       {formatRelationshipLabel(option)}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </LabeledFeedField>
+
+          <LabeledFeedField
+            label="Occasion"
+            hint="Optional — we’ll prioritize ideas that fit this occasion."
+          >
+            <View className="flex-row flex-wrap gap-2">
+              {OCCASION_OPTIONS.map((option) => {
+                const isSelected = occasion === option;
+                return (
+                  <Pressable
+                    key={option}
+                    onPress={() => setOccasion(isSelected ? "" : option)}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: isSelected }}
+                    className={`rounded-full border px-4 py-2 ${
+                      isSelected
+                        ? "border-[#1f7a5c] bg-[#1f7a5c]"
+                        : "border-zinc-300 bg-white"
+                    }`}
+                  >
+                    <Text
+                      className={`font-sf-display-medium text-sm ${
+                        isSelected ? "text-white" : "text-zinc-700"
+                      }`}
+                    >
+                      {formatOccasionLabel(option)}
                     </Text>
                   </Pressable>
                 );

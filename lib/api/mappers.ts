@@ -35,6 +35,11 @@ export function toBackendOccasion(value: string | null | undefined): string {
   }
 }
 
+/** Map a stored backend occasion onto a form chip value for editing. */
+export function fromBackendOccasion(value: string | null | undefined): string {
+  return (value ?? "").trim().toLowerCase();
+}
+
 export function profileToFeedDto(profile: ProfileDetailDto): FeedDto {
   return {
     id: profile.id,
@@ -52,53 +57,37 @@ export function profileToFeedDto(profile: ProfileDetailDto): FeedDto {
   };
 }
 
-/** Internal angle codes → friendly, shopper-facing labels. */
-const ANGLE_LABELS: Record<string, string> = {
-  consumable: "Supplies",
-  skill: "Gear",
-  experience: "Experience",
-  aesthetic: "Design",
-  social: "For sharing",
-  // wildcard intentionally omitted — it's the "surprise" pick.
-};
-
 const SLOT_LABELS: Record<string, string> = {
   occasion: "For the occasion",
   wildcard: "Something different",
+  adjacent: "Related interests",
 };
 
-function titleCase(value: string): string {
-  return value
-    .replace(/[_-]+/g, " ")
-    .replace(/\b\w/g, (c) => c.toUpperCase())
-    .trim();
-}
-
 /**
- * Build clean, human-readable card tags. Prefers the real product category,
- * then a friendly label for the recommendation angle/slot. Drops internal
- * jargon ("interest", "adjacent", raw angle codes).
+ * Card chips — product-facing, not engine internals.
+ * Priority: hobby name → occasion → soft wildcard/adjacent label.
+ * Never show Amazon binding ("Paperback") or angle codes ("Gear").
+ * Max 2 chips.
  */
-function buildCardTags(
-  category?: string | null,
-  slotType?: string | null,
-  angle?: string | null
-): string[] {
+function buildCardTags(opts: {
+  hobbyName?: string | null;
+  slotType?: string | null;
+}): string[] {
   const tags: string[] = [];
 
-  if (category && category.trim() && category.toLowerCase() !== "general") {
-    tags.push(titleCase(category));
+  const hobby = opts.hobbyName?.trim();
+  if (hobby) {
+    tags.push(hobby);
   }
 
-  const angleLabel = angle ? ANGLE_LABELS[angle.toLowerCase()] : undefined;
-  if (angleLabel) {
-    tags.push(angleLabel);
-  } else if (slotType && SLOT_LABELS[slotType.toLowerCase()]) {
-    tags.push(SLOT_LABELS[slotType.toLowerCase()]);
+  const slot = opts.slotType?.toLowerCase() ?? "";
+  if (slot === "occasion") {
+    tags.push(SLOT_LABELS.occasion);
+  } else if (slot === "wildcard" || slot === "adjacent") {
+    tags.push(SLOT_LABELS[slot]);
   }
 
-  // De-dupe while preserving order.
-  return [...new Set(tags)];
+  return [...new Set(tags)].slice(0, 2);
 }
 
 function cardSnapshotToQueueItem(item: {
@@ -108,9 +97,8 @@ function cardSnapshotToQueueItem(item: {
   price: number;
   image_url: string;
   product_url: string;
-  category?: string | null;
   slot_type?: string | null;
-  angle?: string | null;
+  hobby_name?: string | null;
 }): QueueItemDto {
   return {
     id: item.feed_event_id,
@@ -121,7 +109,10 @@ function cardSnapshotToQueueItem(item: {
     priceCents: item.price > 0 ? Math.round(item.price * 100) : null,
     currency: item.price > 0 ? "USD" : null,
     buyUrl: item.product_url || null,
-    tags: buildCardTags(item.category, item.slot_type, item.angle),
+    tags: buildCardTags({
+      hobbyName: item.hobby_name,
+      slotType: item.slot_type,
+    }),
   };
 }
 
