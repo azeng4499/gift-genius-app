@@ -57,10 +57,7 @@ const ProductCard = ({
 
       {/* Details */}
       <View className="w-full shrink-0 px-5 pt-4 pb-5">
-        <View className="w-full flex-row items-center justify-between">
-          <ThemedText fontWeight="medium" className="text-[13px] text-zinc-400">
-            Picked for them
-          </ThemedText>
+        <View className="w-full flex-row items-center justify-end">
           <View className="flex-row items-center gap-4">
             <Pressable
               disabled={interactionInFlight || !item}
