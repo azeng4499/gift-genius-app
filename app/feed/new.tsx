@@ -111,7 +111,7 @@ export default function NewFeedScreen() {
     <SafeAreaView className="flex-1 bg-white" edges={["bottom"]}>
       <Stack.Screen
         options={{
-          title: isOnboarding ? "Welcome" : "Add someone",
+          title: isOnboarding ? "Welcome to GiftGenius" : "Add someone",
           headerBackVisible: !isOnboarding,
           gestureEnabled: !isOnboarding,
           headerShadowVisible: false,
@@ -130,15 +130,64 @@ export default function NewFeedScreen() {
           <View className="gap-2">
             <Text className="font-noto-serif-bold text-[26px] leading-tight text-zinc-900">
               {isOnboarding
-                ? "Let’s set up your first list"
+                ? "Find gifts they’ll actually want"
                 : "Who are you shopping for?"}
             </Text>
             <Text className="text-[15px] leading-relaxed text-zinc-500">
               {isOnboarding
-                ? "Add the first person you’re shopping for and we’ll start finding gifts they’ll love."
+                ? "GiftGenius builds a personal gift feed for someone you’re shopping for. Tell us a bit about them, then swipe through ideas tailored to their interests and your budget."
                 : "Tell us a little about them and we’ll tailor gift ideas to their taste."}
             </Text>
           </View>
+
+          {isOnboarding ? (
+            <View className="gap-4 rounded-2xl bg-zinc-50 px-4 py-4">
+              <Text className="font-sf-display-semibold text-[13px] uppercase tracking-wide text-zinc-500">
+                How it works
+              </Text>
+              <View className="gap-3.5">
+                <View className="flex-row gap-3">
+                  <Text className="w-5 font-noto-serif-bold text-base text-[#1f7a5c]">1</Text>
+                  <View className="flex-1 gap-0.5">
+                    <Text className="font-sf-display-semibold text-[15px] text-zinc-900">
+                      Set up their list
+                    </Text>
+                    <Text className="text-[14px] leading-relaxed text-zinc-500">
+                      Add their name, interests, and budget below. You can change these anytime in settings.
+                    </Text>
+                  </View>
+                </View>
+                <View className="flex-row gap-3">
+                  <Text className="w-5 font-noto-serif-bold text-base text-[#1f7a5c]">2</Text>
+                  <View className="flex-1 gap-0.5">
+                    <Text className="font-sf-display-semibold text-[15px] text-zinc-900">
+                      Browse gift ideas
+                    </Text>
+                    <Text className="text-[14px] leading-relaxed text-zinc-500">
+                      You’ll get a swipeable feed of products. Skip ones that don’t fit, bookmark ones you’d buy, and tap through to Amazon when you’re ready.
+                    </Text>
+                  </View>
+                </View>
+                <View className="flex-row gap-3">
+                  <Text className="w-5 font-noto-serif-bold text-base text-[#1f7a5c]">3</Text>
+                  <View className="flex-1 gap-0.5">
+                    <Text className="font-sf-display-semibold text-[15px] text-zinc-900">
+                      It learns as you go
+                    </Text>
+                    <Text className="text-[14px] leading-relaxed text-zinc-500">
+                      Saves and skips help the feed improve. You can add more people later and keep a separate list for each.
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+          ) : null}
+
+          {isOnboarding ? (
+            <Text className="font-noto-serif-bold text-lg text-zinc-900">
+              Who are you shopping for first?
+            </Text>
+          ) : null}
 
           <TextField
             label="Their name"
@@ -245,7 +294,7 @@ export default function NewFeedScreen() {
 
         <View className="border-t border-zinc-100 bg-white px-5 pt-3 pb-2">
           <PrimaryButton
-            label={isOnboarding ? "Start finding gifts" : "Create list"}
+            label={isOnboarding ? "Create list & start browsing" : "Create list"}
             onPress={onSubmit}
             loading={submitting}
           />
