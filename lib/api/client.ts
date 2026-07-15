@@ -431,6 +431,31 @@ export function createGiftGeniusApiClient(config: ApiClientConfig) {
         { requiresAuth: true }
       );
     },
+
+    async copySavedItem(
+      sourceProfileId: string,
+      feedEventId: string,
+      targetProfileId: string
+    ): Promise<{ ok: true; already_saved: boolean; feed_event_id: string }> {
+      return request<{ ok: true; already_saved: boolean; feed_event_id: string }>(
+        `/profiles/${encodeURIComponent(sourceProfileId)}/saved/${encodeURIComponent(feedEventId)}/copy`,
+        {
+          method: "POST",
+          body: { target_profile_id: targetProfileId },
+          requiresAuth: true,
+        }
+      );
+    },
+
+    async unsaveItem(
+      profileId: string,
+      feedEventId: string
+    ): Promise<{ ok: true }> {
+      return request<{ ok: true }>(
+        `/profiles/${encodeURIComponent(profileId)}/saved/${encodeURIComponent(feedEventId)}`,
+        { method: "DELETE", requiresAuth: true }
+      );
+    },
   };
 }
 
