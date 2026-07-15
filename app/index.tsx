@@ -9,6 +9,7 @@ import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   FlatList,
+  Modal,
   Pressable,
   RefreshControl,
   NativeSyntheticEvent,
@@ -31,7 +32,9 @@ import {
   CircleUserRound,
   House,
   Plus,
+  ShoppingBag,
   SlidersHorizontal,
+  X,
 } from "lucide-react-native";
 
 import ProductCard from "@/components/product-card/product-card";
@@ -53,6 +56,10 @@ import {
   type InteractionKind,
 } from "@/lib/api/mappers";
 import { useToast } from "@/components/ui/toast";
+import {
+  hasSeenFeedControlsTip,
+  markFeedControlsTipSeen,
+} from "@/lib/state/onboarding-prefs";
 import {
   getCurrentFeedId,
   getCurrentSessionId,
@@ -110,9 +117,11 @@ export default function SwipeScreen() {
     Record<string, "pass" | "save">
   >({});
   const [pendingScrollIndex, setPendingScrollIndex] = useState<number | null>(null);
+  const [showFeedControlsTip, setShowFeedControlsTip] = useState(false);
   const feedListRef = useRef<FlatList<QueueItemDto>>(null);
   const interactedItemIdsRef = useRef<Set<string>>(new Set());
   const bootstrappedClerkUserIdRef = useRef<string | null>(null);
+  const feedTipCheckedRef = useRef(false);
   const bottomSheetRef = useRef<BottomSheet>(null);
   const snapPoints = useMemo(() => ["50%", "100%"], []);
   const api = useMemo(() => getApiClient(), []);
@@ -637,6 +646,38 @@ export default function SwipeScreen() {
     logFeedEvent,
   ]);
 
+  useEffect(() => {
+    if (feedTipCheckedRef.current) return;
+    if (bootstrapping || preparingFeed || feedLoading) return;
+    if (feedItems.length === 0) return;
+
+    let cancelled = false;
+    feedTipCheckedRef.current = true;
+    (async () => {
+      try {
+        const seen = await hasSeenFeedControlsTip();
+        if (!cancelled && !seen) {
+          setShowFeedControlsTip(true);
+        }
+      } catch {
+        /* tip is optional — don't block the feed */
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [bootstrapping, feedItems.length, feedLoading, preparingFeed]);
+
+  const dismissFeedControlsTip = useCallback(async () => {
+    setShowFeedControlsTip(false);
+    try {
+      await markFeedControlsTipSeen();
+    } catch {
+      /* ignore persistence failures */
+    }
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
       const userId = getCurrentUserId();
@@ -830,6 +871,91 @@ export default function SwipeScreen() {
           </Link>
         </View>
       </ThemedView>
+
+      <Modal
+        visible={showFeedControlsTip}
+        transparent
+        animationType="fade"
+        onRequestClose={dismissFeedControlsTip}
+      >
+        <Pressable
+          className="flex-1 justify-end bg-black/45"
+          onPress={dismissFeedControlsTip}
+        >
+          <Pressable
+            className="rounded-t-3xl bg-white px-5 pb-10 pt-4"
+            onPress={(e) => e.stopPropagation()}
+          >
+            <View className="mb-4 items-center">
+              <View className="h-1 w-10 rounded-full bg-zinc-300" />
+            </View>
+            <Text className="font-noto-serif-bold text-xl text-zinc-900">
+              How to use your feed
+            </Text>
+            <Text className="mt-2 text-[15px] leading-relaxed text-zinc-500">
+              Each card is a gift idea for {activeFeedName}. Use these controls to
+              shape what you see next.
+            </Text>
+
+            <View className="mt-5 gap-4">
+              <View className="flex-row items-start gap-3">
+                <View className="mt-0.5 h-9 w-9 items-center justify-center rounded-full bg-zinc-100">
+                  <Bookmark size={18} color="#1f7a5c" strokeWidth={1.75} />
+                </View>
+                <View className="flex-1">
+                  <Text className="font-sf-display-semibold text-[15px] text-zinc-900">
+                    Bookmark
+                  </Text>
+                  <Text className="mt-0.5 text-[14px] leading-relaxed text-zinc-500">
+                    Save gifts you’d buy. Find them later on the saved list.
+                  </Text>
+                </View>
+              </View>
+
+              <View className="flex-row items-start gap-3">
+                <View className="mt-0.5 h-9 w-9 items-center justify-center rounded-full bg-zinc-100">
+                  <X size={18} color="#b42318" strokeWidth={2} />
+                </View>
+                <View className="flex-1">
+                  <Text className="font-sf-display-semibold text-[15px] text-zinc-900">
+                    Skip
+                  </Text>
+                  <Text className="mt-0.5 text-[14px] leading-relaxed text-zinc-500">
+                    Pass on ideas that aren’t a fit. Swiping to the next card also
+                    counts as a skip.
+                  </Text>
+                </View>
+              </View>
+
+              <View className="flex-row items-start gap-3">
+                <View className="mt-0.5 h-9 w-9 items-center justify-center rounded-full bg-zinc-100">
+                  <ShoppingBag size={18} color="#1f7a5c" strokeWidth={1.75} />
+                </View>
+                <View className="flex-1">
+                  <Text className="font-sf-display-semibold text-[15px] text-zinc-900">
+                    Shop this gift
+                  </Text>
+                  <Text className="mt-0.5 text-[14px] leading-relaxed text-zinc-500">
+                    Opens the product on Amazon when you’re ready to buy.
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            <Pressable
+              onPress={dismissFeedControlsTip}
+              className="mt-7 h-14 items-center justify-center rounded-full bg-[#1f7a5c]"
+              accessibilityRole="button"
+              accessibilityLabel="Got it"
+            >
+              <Text className="font-sf-display-semibold text-[16px] text-white">
+                Got it — start browsing
+              </Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       <BottomSheet
         ref={bottomSheetRef}
         index={-1}
