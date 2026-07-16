@@ -14,7 +14,6 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import ProductCardChip from "@/components/product-card/components/product-card-chip";
 import { useToast } from "@/components/ui/toast";
 import { getApiClient } from "@/lib/api";
 import type { FeedDto } from "@/lib/api/client";
@@ -80,13 +79,6 @@ function SavedItemRow({
           <Text className="mt-1 text-sm text-zinc-600">{formatPrice(item)}</Text>
           {savedLabel ? (
             <Text className="mt-1 text-xs text-zinc-400">Saved {savedLabel}</Text>
-          ) : null}
-          {item.tags.length > 0 ? (
-            <View className="mt-2 flex-row flex-wrap gap-2">
-              {item.tags.slice(0, 2).map((tag) => (
-                <ProductCardChip key={tag} label={tag} />
-              ))}
-            </View>
           ) : null}
         </View>
       </Pressable>
