@@ -7,7 +7,7 @@ export type ThemedViewProps = ViewProps & {
 export function ThemedView({ className = '', ...otherProps }: ThemedViewProps) {
   return (
     <View
-      className={`bg-theme-light-background dark:bg-theme-dark-background ${className}`}
+      className={`bg-sheet-surface dark:bg-theme-dark-background ${className}`}
       {...otherProps}
     />
   );

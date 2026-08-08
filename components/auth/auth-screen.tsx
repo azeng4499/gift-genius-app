@@ -18,10 +18,8 @@ import { SocialConnections } from "@/components/social-connections";
 import BottomSheet, {
   BottomSheetBackdrop,
   BottomSheetView,
-  type BottomSheetBackgroundProps,
 } from "@gorhom/bottom-sheet";
-import Svg, { Defs, RadialGradient, Rect, Stop } from "react-native-svg";
-import { useUnstableNativeVariable } from "nativewind";
+import { SheetBackground } from "@/components/ui/sheet-background";
 import { CtaButton } from "@/components/ui/cta-button";
 import { TermsNotice } from "@/components/ui/terms-notice";
 import {
@@ -30,43 +28,6 @@ import {
 } from "react-native-safe-area-context";
 
 const BACKGROUND_VIDEO = require("../../assets/videos/login-bg.mp4");
-
-const SHEET_RADIUS = 15; // matches @gorhom default background corner radius
-
-// Sheet colors live in global.css as design tokens (HSL triplets); fall back to
-// the literal values so the gradient still renders before vars resolve.
-function useSheetColor(varName: string, fallback: string) {
-  const value = useUnstableNativeVariable(varName);
-  return `hsl(${value ?? fallback})`;
-}
-
-function SheetBackground({ pointerEvents, style }: BottomSheetBackgroundProps) {
-  const base = useSheetColor("--sheet-surface", "154 16% 91%");
-  const highlight = useSheetColor("--sheet-highlight", "151 16% 72%");
-  return (
-    <View
-      pointerEvents={pointerEvents}
-      style={[
-        style,
-        {
-          backgroundColor: base,
-          borderRadius: SHEET_RADIUS,
-          overflow: "hidden",
-        },
-      ]}
-    >
-      <Svg style={StyleSheet.absoluteFill} width="100%" height="100%">
-        <Defs>
-          <RadialGradient id="sheetBg" cx="50%" cy="6%" rx="85%" ry="60%">
-            <Stop offset="0" stopColor={highlight} stopOpacity={1} />
-            <Stop offset="1" stopColor={base} stopOpacity={1} />
-          </RadialGradient>
-        </Defs>
-        <Rect x="0" y="0" width="100%" height="100%" fill="url(#sheetBg)" />
-      </Svg>
-    </View>
-  );
-}
 
 export function AuthScreen() {
   const player = useVideoPlayer(BACKGROUND_VIDEO, (p) => {

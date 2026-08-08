@@ -43,6 +43,8 @@ export default {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
+        "sheet-surface": "hsl(var(--sheet-surface))",
+        "sheet-highlight": "hsl(var(--sheet-highlight))",
         // --- Legacy app colors (kept until pages are migrated off them) ---
         "app-bg": "#121212",
         "card-bg": "#1a1a1a",

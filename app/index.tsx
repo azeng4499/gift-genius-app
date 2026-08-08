@@ -8,12 +8,10 @@ import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   FlatList,
-  Modal,
   Pressable,
   RefreshControl,
   NativeSyntheticEvent,
   NativeScrollEvent,
-  Text,
   View,
   ActivityIndicator,
 } from "react-native";
@@ -21,8 +19,7 @@ import {
   SafeAreaView,
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
-
-import { ThemedText } from "@/components/themed-text";
+import { Text } from "@/components/ui/text";
 import { ThemedView } from "@/components/themed-view";
 import {
   Bookmark,
@@ -31,22 +28,17 @@ import {
   CircleUserRound,
   House,
   Plus,
-  ShoppingBag,
-  SlidersHorizontal,
-  X,
+  Ellipsis,
 } from "lucide-react-native";
 
 import ProductCard from "@/components/product-card/product-card";
+import { SheetBackground } from "@/components/ui/sheet-background";
 import {
   bootstrapFromClerkUser,
   loadProfilesForUser,
   startSessionForProfile,
 } from "@/lib/api/bootstrap";
-import {
-  ApiError,
-  type FeedDto,
-  type QueueItemDto,
-} from "@/lib/api/client";
+import { ApiError, type FeedDto, type QueueItemDto } from "@/lib/api/client";
 import { getApiClient } from "@/lib/api";
 import { useAppUser } from "@/lib/use-app-user";
 import { friendlyErrorMessage } from "@/lib/api/errors";
@@ -56,10 +48,6 @@ import {
   type InteractionKind,
 } from "@/lib/api/mappers";
 import { useToast } from "@/components/ui/toast";
-import {
-  hasSeenFeedControlsTip,
-  markFeedControlsTipSeen,
-} from "@/lib/state/onboarding-prefs";
 import {
   getCurrentFeedId,
   getCurrentSessionId,
@@ -85,7 +73,7 @@ export default function SwipeScreen() {
         feedId: getCurrentFeedId(),
       });
     },
-    []
+    [],
   );
 
   const insets = useSafeAreaInsets();
@@ -93,7 +81,6 @@ export default function SwipeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [bootstrapping, setBootstrapping] = useState(true);
   const [activeFeedName, setActiveFeedName] = useState("Your gifts");
-  const [bootstrapError, setBootstrapError] = useState<string | null>(null);
   const [availableFeeds, setAvailableFeeds] = useState<FeedDto[]>([]);
   const params = useLocalSearchParams<{
     refreshKey?: string;
@@ -104,9 +91,12 @@ export default function SwipeScreen() {
   const [feedItems, setFeedItems] = useState<QueueItemDto[]>([]);
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
   const [feedLoading, setFeedLoading] = useState(false);
-  // True while the backend is still computing this profile's recommendations
-  // for the first time; drives the "getting ready" screen + polling loop.
-  const [preparingFeed, setPreparingFeed] = useState(false);
+  // Overlay shown over the feed area while (re)loading cards, and its error
+  // variant when a load throws. "ready" hides both.
+  const [feedStatus, setFeedStatus] = useState<"ready" | "loading" | "error">(
+    "ready",
+  );
+  const [feedError, setFeedError] = useState<string | null>(null);
   // Bumped to cancel any in-flight polling loop (feed switch, refresh, unmount).
   const pollTokenRef = useRef(0);
   const [interactionInFlight, setInteractionInFlight] = useState(false);
@@ -116,12 +106,12 @@ export default function SwipeScreen() {
   const [interactionByItemId, setInteractionByItemId] = useState<
     Record<string, "pass" | "save">
   >({});
-  const [pendingScrollIndex, setPendingScrollIndex] = useState<number | null>(null);
-  const [showFeedControlsTip, setShowFeedControlsTip] = useState(false);
+  const [pendingScrollIndex, setPendingScrollIndex] = useState<number | null>(
+    null,
+  );
   const feedListRef = useRef<FlatList<QueueItemDto>>(null);
   const interactedItemIdsRef = useRef<Set<string>>(new Set());
   const bootstrappedClerkUserIdRef = useRef<string | null>(null);
-  const feedTipCheckedRef = useRef(false);
   const bottomSheetRef = useRef<BottomSheet>(null);
   const snapPoints = useMemo(() => ["50%", "100%"], []);
   const api = useMemo(() => getApiClient(), []);
@@ -189,17 +179,34 @@ export default function SwipeScreen() {
     }
   }, [api, logFeedEvent]);
 
-  const stopFeedPolling = useCallback(() => {
-    pollTokenRef.current += 1;
-    setPreparingFeed(false);
+  // Runs a feed load behind the "loading" overlay, keeping it up for a fixed
+  // 5s (placeholder for now), and flips to the error overlay if the load throws.
+  const runFeedLoad = useCallback(async (task: () => Promise<void>) => {
+    const FEED_LOADING_MS = 5000;
+    setFeedError(null);
+    setFeedStatus("loading");
+    const startedAt = Date.now();
+    try {
+      await task();
+      const remaining = FEED_LOADING_MS - (Date.now() - startedAt);
+      if (remaining > 0) {
+        await new Promise((resolve) => setTimeout(resolve, remaining));
+      }
+      setFeedStatus("ready");
+    } catch (error) {
+      setFeedError(friendlyErrorMessage(error, "Couldn't load your feed."));
+      setFeedStatus("error");
+    }
   }, []);
 
-  // Poll the feed while the backend reports it's still preparing, showing the
-  // "getting your recommendations ready" overlay until items arrive, the
-  // profile is genuinely empty, or we hit the max wait.
+  const stopFeedPolling = useCallback(() => {
+    pollTokenRef.current += 1;
+  }, []);
+
+  // Poll the feed while the backend reports it's still preparing, until items
+  // arrive, the profile is genuinely empty, or we hit the max wait.
   const startFeedPolling = useCallback(() => {
     const token = ++pollTokenRef.current;
-    setPreparingFeed(true);
     const startedAt = Date.now();
     const MAX_WAIT_MS = 3 * 60 * 1000;
     const INTERVAL_MS = 4000;
@@ -209,29 +216,13 @@ export default function SwipeScreen() {
       try {
         const { count, preparing } = await loadMoreFeedItems();
         if (token !== pollTokenRef.current) return;
-        if (count > 0) {
-          setPreparingFeed(false);
-          setBootstrapError(null);
-          return;
-        }
-        if (!preparing) {
-          setPreparingFeed(false);
-          setBootstrapError(
-            "No recommendations are in the queue for this feed yet. Try another profile from the menu, open feed settings, or ensure the backend catalog is stocked."
-          );
-          return;
-        }
+        if (count > 0) return;
+        if (!preparing) return;
       } catch {
         if (token !== pollTokenRef.current) return;
         // Transient error — keep retrying until the max wait.
       }
-      if (Date.now() - startedAt > MAX_WAIT_MS) {
-        setPreparingFeed(false);
-        setBootstrapError(
-          "This is taking longer than expected. Pull to refresh to try again."
-        );
-        return;
-      }
+      if (Date.now() - startedAt > MAX_WAIT_MS) return;
       setTimeout(tick, INTERVAL_MS);
     };
 
@@ -240,7 +231,7 @@ export default function SwipeScreen() {
 
   useEffect(() => stopFeedPolling, [stopFeedPolling]);
 
-  const resetAndLoadFeedCards = useCallback(async (): Promise<boolean> => {
+  const resetAndLoadFeedCards = useCallback(async (): Promise<void> => {
     stopFeedPolling();
     setFeedItems([]);
     setCurrentCardIndex(0);
@@ -248,26 +239,13 @@ export default function SwipeScreen() {
     setInteractionByItemId({});
     try {
       const { count, preparing } = await loadMoreFeedItems();
-      if (count === 0) {
-        // Still being computed for the first time — poll behind the "getting
-        // ready" screen instead of dead-ending on an empty state.
-        if (preparing) {
-          startFeedPolling();
-          return false;
-        }
-        setBootstrapError(
-          "No recommendations are in the queue for this feed yet. Try another profile from the menu, open feed settings, or ensure the backend catalog is stocked."
-        );
-        return true;
+      // Empty but still being computed for the first time — poll until items
+      // arrive instead of dead-ending on an empty state.
+      if (count === 0 && preparing) {
+        startFeedPolling();
       }
-      return false;
     } catch (error) {
-      if (isFeedQueueEmptyError(error)) {
-        setBootstrapError(
-          "No recommendations are in the queue for this feed yet. Try another profile from the menu, open feed settings, or ensure the backend catalog is stocked."
-        );
-        return true;
-      }
+      if (isFeedQueueEmptyError(error)) return;
       throw error;
     }
   }, [loadMoreFeedItems, startFeedPolling, stopFeedPolling]);
@@ -277,18 +255,17 @@ export default function SwipeScreen() {
       try {
         await startSessionForProfile(api, feed.id);
         setActiveFeedName(feed.name);
-        logFeedEvent("feed_switch", { nextProfileId: feed.id, nextProfileName: feed.name });
-        const queueEmpty = await resetAndLoadFeedCards();
-        if (!queueEmpty) {
-          setBootstrapError(null);
-        }
+        logFeedEvent("feed_switch", {
+          nextProfileId: feed.id,
+          nextProfileName: feed.name,
+        });
+        await resetAndLoadFeedCards();
         bottomSheetRef.current?.close();
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Failed to switch feed";
-        setBootstrapError(message);
+        toast.show({ message: friendlyErrorMessage(error), variant: "error" });
       }
     },
-    [api, logFeedEvent, resetAndLoadFeedCards]
+    [api, logFeedEvent, resetAndLoadFeedCards, toast],
   );
 
   useEffect(() => {
@@ -304,20 +281,19 @@ export default function SwipeScreen() {
       try {
         const profiles = await loadProfilesForUser(api, userId);
         setAvailableFeeds(profiles);
-        const selectedProfile = profiles.find((feed) => feed.id === selectedProfileId);
+        const selectedProfile = profiles.find(
+          (feed) => feed.id === selectedProfileId,
+        );
         if (selectedProfile) {
           await switchToFeed(selectedProfile);
-        } else {
-          setBootstrapError(null);
         }
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Failed to refresh feeds";
-        setBootstrapError(message);
+        toast.show({ message: friendlyErrorMessage(error), variant: "error" });
       }
     };
 
     refreshAfterCreate();
-  }, [api, params.refreshKey, params.selectedFeedId, switchToFeed]);
+  }, [api, params.refreshKey, params.selectedFeedId, switchToFeed, toast]);
 
   // Reload feed after interest changes in feed settings.
   useEffect(() => {
@@ -332,14 +308,12 @@ export default function SwipeScreen() {
         }
         if (cancelled) return;
         await resetAndLoadFeedCards();
-        if (!cancelled) {
-          setBootstrapError(null);
-        }
       } catch (error) {
         if (!cancelled) {
-          setBootstrapError(
-            friendlyErrorMessage(error, "Couldn't refresh your feed.")
-          );
+          toast.show({
+            message: friendlyErrorMessage(error, "Couldn't refresh your feed."),
+            variant: "error",
+          });
         }
       }
     })();
@@ -347,13 +321,16 @@ export default function SwipeScreen() {
     return () => {
       cancelled = true;
     };
-  }, [api, params.refreshFeedKey, resetAndLoadFeedCards]);
+  }, [api, params.refreshFeedKey, resetAndLoadFeedCards, toast]);
 
   const advanceToNextCard = useCallback(async () => {
     const nextIndex = currentCardIndex + 1;
     const isAtEnd = currentCardIndex >= feedItems.length - 1;
     if (isAtEnd) {
-      await loadMoreFeedItems();
+      // Reached the end of the feed — show the loading overlay while more loads.
+      await runFeedLoad(async () => {
+        await loadMoreFeedItems();
+      });
     }
     setCurrentCardIndex(nextIndex);
     if (nextIndex < feedItems.length || !isAtEnd) {
@@ -361,7 +338,7 @@ export default function SwipeScreen() {
     } else {
       setPendingScrollIndex(nextIndex);
     }
-  }, [currentCardIndex, feedItems.length, loadMoreFeedItems]);
+  }, [currentCardIndex, feedItems.length, loadMoreFeedItems, runFeedLoad]);
 
   const submitInteraction = useCallback(
     async (type: InteractionKind, opts?: { clear?: boolean }) => {
@@ -394,7 +371,10 @@ export default function SwipeScreen() {
         await api.postSignal(currentItem.id, interactionToSignal(type));
         interactedItemIdsRef.current.add(currentItem.id);
         if (isVisualState) {
-          setInteractionByItemId((prev) => ({ ...prev, [currentItem.id]: type }));
+          setInteractionByItemId((prev) => ({
+            ...prev,
+            [currentItem.id]: type,
+          }));
         }
 
         if (type === "save") {
@@ -420,7 +400,15 @@ export default function SwipeScreen() {
         setActiveInteractionType(null);
       }
     },
-    [api, advanceToNextCard, currentCardIndex, feedItems, interactionByItemId, logFeedEvent, toast]
+    [
+      api,
+      advanceToNextCard,
+      currentCardIndex,
+      feedItems,
+      interactionByItemId,
+      logFeedEvent,
+      toast,
+    ],
   );
 
   // Bootstrap exactly once per signed-in user. Depends ONLY on stable values
@@ -467,17 +455,15 @@ export default function SwipeScreen() {
           return;
         }
 
-        const queueEmpty = await resetAndLoadFeedCards();
-        if (!cancelled && !queueEmpty) {
-          setBootstrapError(null);
-        }
+        await resetAndLoadFeedCards();
       } catch (error) {
         if (!cancelled) {
           // Allow a retry via pull-to-refresh / next mount.
           bootstrappedClerkUserIdRef.current = null;
-          setBootstrapError(
-            friendlyErrorMessage(error, "We couldn’t load your gifts.")
-          );
+          toast.show({
+            message: friendlyErrorMessage(error, "We couldn’t load your gifts."),
+            variant: "error",
+          });
           setActiveFeedName("Setup needed");
         }
       } finally {
@@ -511,34 +497,36 @@ export default function SwipeScreen() {
     const refresh = async () => {
       setRefreshing(true);
       try {
-        const result = await bootstrapUserAndFeed();
-        if (result.needsOnboarding) {
-          router.replace("/feed/new?onboarding=1");
-          return;
-        }
-        const queueEmpty = await resetAndLoadFeedCards();
-        if (!queueEmpty) {
-          setBootstrapError(null);
-        }
-      } catch (error) {
-        setBootstrapError(friendlyErrorMessage(error, "Couldn’t refresh."));
+        await runFeedLoad(async () => {
+          const result = await bootstrapUserAndFeed();
+          if (result.needsOnboarding) {
+            router.replace("/feed/new?onboarding=1");
+            return;
+          }
+          await resetAndLoadFeedCards();
+        });
       } finally {
         setRefreshing(false);
       }
     };
 
     refresh();
-  }, [bootstrapUserAndFeed, resetAndLoadFeedCards]);
+  }, [bootstrapUserAndFeed, resetAndLoadFeedCards, runFeedLoad]);
 
   const onFeedScrollEnd = useCallback(
     async (event: NativeSyntheticEvent<NativeScrollEvent>) => {
       if (!feedHeight) return;
 
-      const nextIndex = Math.round(event.nativeEvent.contentOffset.y / feedHeight);
+      const nextIndex = Math.round(
+        event.nativeEvent.contentOffset.y / feedHeight,
+      );
       const previousIndex = currentCardIndex;
       const minAllowedIndex = Math.max(0, previousIndex - 5);
       if (nextIndex < minAllowedIndex) {
-        feedListRef.current?.scrollToIndex({ index: minAllowedIndex, animated: true });
+        feedListRef.current?.scrollToIndex({
+          index: minAllowedIndex,
+          animated: true,
+        });
         setCurrentCardIndex(minAllowedIndex);
         return;
       }
@@ -565,7 +553,10 @@ export default function SwipeScreen() {
             }));
           }
         } catch (error) {
-          toast.show({ message: friendlyErrorMessage(error), variant: "error" });
+          toast.show({
+            message: friendlyErrorMessage(error),
+            variant: "error",
+          });
         } finally {
           setInteractionInFlight(false);
         }
@@ -580,14 +571,23 @@ export default function SwipeScreen() {
         visibleItemTitle: visibleItem?.title ?? null,
       });
       if (nextIndex >= feedItems.length - 1 && !feedLoading) {
-        try {
+        // Reached the end of the feed — show the loading overlay while more loads.
+        await runFeedLoad(async () => {
           await loadMoreFeedItems();
-        } catch (error) {
-          toast.show({ message: friendlyErrorMessage(error), variant: "error" });
-        }
+        });
       }
     },
-    [api, currentCardIndex, feedHeight, feedItems, feedLoading, loadMoreFeedItems, logFeedEvent, toast]
+    [
+      api,
+      currentCardIndex,
+      feedHeight,
+      feedItems,
+      feedLoading,
+      loadMoreFeedItems,
+      logFeedEvent,
+      runFeedLoad,
+      toast,
+    ],
   );
 
   const renderFeedItem = useCallback(
@@ -606,12 +606,7 @@ export default function SwipeScreen() {
         />
       </View>
     ),
-    [
-      activeInteractionType,
-      feedHeight,
-      interactionInFlight,
-      submitInteraction,
-    ]
+    [activeInteractionType, feedHeight, interactionInFlight, submitInteraction],
   );
 
   useEffect(() => {
@@ -646,38 +641,6 @@ export default function SwipeScreen() {
     logFeedEvent,
   ]);
 
-  useEffect(() => {
-    if (feedTipCheckedRef.current) return;
-    if (bootstrapping || preparingFeed || feedLoading) return;
-    if (feedItems.length === 0) return;
-
-    let cancelled = false;
-    feedTipCheckedRef.current = true;
-    (async () => {
-      try {
-        const seen = await hasSeenFeedControlsTip();
-        if (!cancelled && !seen) {
-          setShowFeedControlsTip(true);
-        }
-      } catch {
-        /* tip is optional — don't block the feed */
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [bootstrapping, feedItems.length, feedLoading, preparingFeed]);
-
-  const dismissFeedControlsTip = useCallback(async () => {
-    setShowFeedControlsTip(false);
-    try {
-      await markFeedControlsTipSeen();
-    } catch {
-      /* ignore persistence failures */
-    }
-  }, []);
-
   useFocusEffect(
     useCallback(() => {
       const userId = getCurrentUserId();
@@ -702,7 +665,7 @@ export default function SwipeScreen() {
       return () => {
         cancelled = true;
       };
-    }, [api])
+    }, [api]),
   );
 
   if (bootstrapping) {
@@ -724,33 +687,31 @@ export default function SwipeScreen() {
     <SafeAreaView className="flex-1 bg-white">
       <StatusBar style="dark" />
       <ThemedView className="w-full h-full bg-white">
-        <View className="w-full flex-row h-16 flex justify-between items-center p-4">
+        <View className="w-full flex-row items-center px-4 pb-4 pt-2 border-b border-zinc-200">
+          <View className="flex-1 flex-row justify-start">
+            <Text>Logo</Text>
+          </View>
           <Pressable
-            className="flex-row justify-center items-end gap-1"
+            className="flex flex-row justify-center items-center gap-2"
+            accessibilityRole="button"
+            accessibilityLabel="Switch person"
+            hitSlop={8}
             onPress={() => bottomSheetRef.current?.snapToIndex(0)}
           >
-            <Text className="text-lg font-noto-serif-bold">{activeFeedName}</Text>
-            <ChevronDown size={24} color="black" strokeWidth={1.5} />
-          </Pressable>
-          <Pressable
-            onPress={() => router.push("/feed/settings")}
-            accessibilityRole="button"
-            accessibilityLabel="Feed settings"
-            hitSlop={8}
-          >
-            <SlidersHorizontal size={30} color="black" strokeWidth={1.5} />
-          </Pressable>
-        </View>
-        {bootstrapError && feedItems.length > 0 ? (
-          <View className="mx-4 mb-2 flex-row items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
-            <Text className="flex-1 pr-3 text-sm text-amber-900" numberOfLines={2}>
-              {bootstrapError}
+            <Text
+              className="text-lg text-slate-800"
+              fontStyle="noto-serif-bold"
+            >
+              Sophia
             </Text>
-            <Pressable onPress={onRefresh} hitSlop={8}>
-              <Text className="text-sm font-medium text-amber-900">Retry</Text>
-            </Pressable>
+            <View className="mt-2">
+              <ChevronDown size={24} color="black" strokeWidth={1.5} />
+            </View>
+          </Pressable>
+          <View className="flex-1 flex-row justify-end">
+            <Ellipsis size={24} color="black" />
           </View>
-        ) : null}
+        </View>
         <View className="relative flex-1 px-2">
           <View
             className="w-full h-full"
@@ -766,10 +727,7 @@ export default function SwipeScreen() {
               decelerationRate="fast"
               onMomentumScrollEnd={onFeedScrollEnd}
               refreshControl={
-                <RefreshControl
-                  refreshing={refreshing}
-                  onRefresh={onRefresh}
-                />
+                <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
               }
               getItemLayout={(_, index) => ({
                 length: feedHeight,
@@ -783,58 +741,40 @@ export default function SwipeScreen() {
               }}
             />
           </View>
-          {(feedLoading || preparingFeed) && feedItems.length === 0 ? (
-            <View className="absolute inset-0 items-center justify-center bg-white/90 px-6">
-              <ActivityIndicator size="large" color="#1f7a5c" />
-              <Text className="mt-4 text-center text-base font-medium text-zinc-900">
-                {preparingFeed
-                  ? "Getting your recommendations ready…"
-                  : "Finding great gifts…"}
-              </Text>
-              <Text className="mt-2 text-center text-sm text-zinc-600">
-                {preparingFeed
-                  ? "You’re the first to pick some of these interests, so we’re building fresh ideas. This can take a couple of minutes."
-                  : "We’re matching ideas to this person’s interests. This can take a moment the first time."}
+          {feedStatus === "loading" ? (
+            <View className="absolute inset-0 items-center justify-center bg-white">
+              <Text
+                className="text-lg text-zinc-900"
+                fontStyle="noto-serif-bold"
+              >
+                loading
               </Text>
             </View>
           ) : null}
-          {!feedLoading && !preparingFeed && feedItems.length === 0 ? (
-            <View className="absolute inset-0 items-center justify-center px-8">
-              <View className="h-14 w-14 items-center justify-center rounded-full bg-zinc-100">
-                <Bookmark size={24} color="#1f7a5c" strokeWidth={1.5} />
-              </View>
-              <Text className="mt-4 text-center text-lg font-noto-serif-bold text-zinc-900">
-                {bootstrapError ? "Something went wrong" : "No gifts to show yet"}
+          {feedStatus === "error" ? (
+            <View className="absolute inset-0 items-center justify-center bg-white px-8">
+              <Text
+                className="text-center text-lg text-zinc-900"
+                fontStyle="noto-serif-bold"
+              >
+                Something went wrong
               </Text>
-              <Text className="mt-2 text-center text-sm leading-relaxed text-zinc-600">
-                {bootstrapError ??
-                  "We couldn’t find recommendations for this person right now. Pull to refresh, or tweak their interests and budget."}
+              <Text className="mt-2 text-center text-sm text-zinc-500">
+                {feedError ?? "Couldn't load your feed."}
               </Text>
-              <View className="mt-5 flex-row gap-3">
-                <Pressable
-                  onPress={onRefresh}
-                  className="rounded-full bg-[#1f7a5c] px-5 py-2.5"
-                >
-                  <Text className="font-sf-display-medium text-white">Refresh</Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => router.push("/feed/settings")}
-                  className="rounded-full border border-zinc-300 px-5 py-2.5"
-                >
-                  <Text className="font-sf-display-medium text-zinc-900">
-                    Edit interests
-                  </Text>
-                </Pressable>
-              </View>
-            </View>
-          ) : null}
-          {feedLoading && feedItems.length > 0 ? (
-            <View className="absolute bottom-3 self-center rounded-full bg-zinc-900/80 px-3 py-1">
-              <Text className="text-xs font-sf-display-medium text-white">Loading more…</Text>
+              <Pressable
+                className="mt-4 h-11 flex-row items-center justify-center rounded-full bg-zinc-900 px-6"
+                accessibilityRole="button"
+                onPress={onRefresh}
+              >
+                <Text className="font-sf-display-semibold text-white">
+                  Try again
+                </Text>
+              </Pressable>
             </View>
           ) : null}
         </View>
-        <View className="w-full flex-row items-center border-t border-zinc-100 px-2 pt-2 pb-1">
+        <View className="w-full flex-row items-center border-t border-zinc-200 px-2 pt-2 pb-1">
           <Pressable
             className="flex-1 items-center py-1"
             accessibilityRole="button"
@@ -842,7 +782,10 @@ export default function SwipeScreen() {
             hitSlop={12}
             onPress={() => {
               if (feedItems.length > 0 && feedHeight > 0) {
-                feedListRef.current?.scrollToIndex({ index: 0, animated: true });
+                feedListRef.current?.scrollToIndex({
+                  index: 0,
+                  animated: true,
+                });
                 setCurrentCardIndex(0);
               }
             }}
@@ -871,91 +814,6 @@ export default function SwipeScreen() {
           </Link>
         </View>
       </ThemedView>
-
-      <Modal
-        visible={showFeedControlsTip}
-        transparent
-        animationType="fade"
-        onRequestClose={dismissFeedControlsTip}
-      >
-        <Pressable
-          className="flex-1 justify-end bg-black/45"
-          onPress={dismissFeedControlsTip}
-        >
-          <Pressable
-            className="rounded-t-3xl bg-white px-5 pb-10 pt-4"
-            onPress={(e) => e.stopPropagation()}
-          >
-            <View className="mb-4 items-center">
-              <View className="h-1 w-10 rounded-full bg-zinc-300" />
-            </View>
-            <Text className="font-noto-serif-bold text-xl text-zinc-900">
-              How to use your feed
-            </Text>
-            <Text className="mt-2 text-[15px] leading-relaxed text-zinc-500">
-              Each card is a gift idea for {activeFeedName}. Use these controls to
-              shape what you see next.
-            </Text>
-
-            <View className="mt-5 gap-4">
-              <View className="flex-row items-start gap-3">
-                <View className="mt-0.5 h-9 w-9 items-center justify-center rounded-full bg-zinc-100">
-                  <Bookmark size={18} color="#1f7a5c" strokeWidth={1.75} />
-                </View>
-                <View className="flex-1">
-                  <Text className="font-sf-display-semibold text-[15px] text-zinc-900">
-                    Bookmark
-                  </Text>
-                  <Text className="mt-0.5 text-[14px] leading-relaxed text-zinc-500">
-                    Save gifts you’d buy. Find them later on the saved list.
-                  </Text>
-                </View>
-              </View>
-
-              <View className="flex-row items-start gap-3">
-                <View className="mt-0.5 h-9 w-9 items-center justify-center rounded-full bg-zinc-100">
-                  <X size={18} color="#b42318" strokeWidth={2} />
-                </View>
-                <View className="flex-1">
-                  <Text className="font-sf-display-semibold text-[15px] text-zinc-900">
-                    Skip
-                  </Text>
-                  <Text className="mt-0.5 text-[14px] leading-relaxed text-zinc-500">
-                    Pass on ideas that aren’t a fit. Swiping to the next card also
-                    counts as a skip.
-                  </Text>
-                </View>
-              </View>
-
-              <View className="flex-row items-start gap-3">
-                <View className="mt-0.5 h-9 w-9 items-center justify-center rounded-full bg-zinc-100">
-                  <ShoppingBag size={18} color="#1f7a5c" strokeWidth={1.75} />
-                </View>
-                <View className="flex-1">
-                  <Text className="font-sf-display-semibold text-[15px] text-zinc-900">
-                    Shop this gift
-                  </Text>
-                  <Text className="mt-0.5 text-[14px] leading-relaxed text-zinc-500">
-                    Opens the product on Amazon when you’re ready to buy.
-                  </Text>
-                </View>
-              </View>
-            </View>
-
-            <Pressable
-              onPress={dismissFeedControlsTip}
-              className="mt-7 h-14 items-center justify-center rounded-full bg-[#1f7a5c]"
-              accessibilityRole="button"
-              accessibilityLabel="Got it"
-            >
-              <Text className="font-sf-display-semibold text-[16px] text-white">
-                Got it — start browsing
-              </Text>
-            </Pressable>
-          </Pressable>
-        </Pressable>
-      </Modal>
-
       <BottomSheet
         ref={bottomSheetRef}
         index={-1}
@@ -964,17 +822,25 @@ export default function SwipeScreen() {
         enablePanDownToClose
         topInset={insets.top}
         backdropComponent={renderBackdrop}
-        backgroundStyle={{ backgroundColor: "#fff" }}
+        backgroundComponent={SheetBackground}
         handleIndicatorStyle={{ backgroundColor: "#ccc" }}
       >
         <BottomSheetView className="flex-1 p-4">
-          <ThemedText fontStyle="serif" fontWeight="bold" className="text-lg">
-            Who are you shopping for?
-          </ThemedText>
-          <ThemedText className="mt-2 text-zinc-500">
-            Switch between the people on your gift lists.
-          </ThemedText>
-          <View className="mt-5 gap-2.5">
+          <View>
+            <Text
+              className="text-left text-xl text-slate-700"
+              fontStyle="noto-serif-bold"
+            >
+              Feeds
+            </Text>
+            <Text
+              className="text-left pb-6 pt-1 px-1"
+              fontStyle="sf-display-light"
+            >
+              Switch your feed to shop for someone else.
+            </Text>
+          </View>
+          <View className="gap-2.5">
             {availableFeeds.map((feed) => {
               const isActive = feed.name === activeFeedName;
               return (
@@ -983,18 +849,21 @@ export default function SwipeScreen() {
                   className="flex-row items-center justify-between rounded-2xl border px-4 py-3.5"
                   style={{
                     borderColor: isActive ? "#1f7a5c" : "#e4e4e7",
-                    backgroundColor: isActive ? "rgba(31,122,92,0.06)" : "white",
+                    backgroundColor: isActive
+                      ? "rgba(31,122,92,0.06)"
+                      : "white",
                   }}
                   onPress={() => switchToFeed(feed)}
                 >
                   <View className="flex-1 pr-3">
                     <Text className="text-base font-sf-display-semibold text-zinc-900">
-                      {feed.name}
+                      Sophia
                     </Text>
-                    <Text className="mt-0.5 text-[13px] text-zinc-500" numberOfLines={1}>
-                      {isActive
-                        ? "Currently viewing"
-                        : feed.interests.slice(0, 3).join(" · ") || "Tap to view"}
+                    <Text
+                      className="mt-0.5 text-[13px] text-zinc-500"
+                      numberOfLines={1}
+                    >
+                      Sister • Christmas • $25 - $50
                     </Text>
                   </View>
                   {isActive ? (
@@ -1008,6 +877,33 @@ export default function SwipeScreen() {
                 </Pressable>
               );
             })}
+            <Pressable
+              className="flex-row items-center justify-between rounded-2xl border px-4 py-3.5"
+              style={{
+                borderColor: false ? "#1f7a5c" : "#e4e4e7",
+                backgroundColor: false ? "rgba(31,122,92,0.06)" : "white",
+              }}
+            >
+              <View className="flex-1 pr-3">
+                <Text
+                  className="text-base text-zinc-900"
+                  fontStyle="sf-rounded-semibold"
+                >
+                  Sophia
+                </Text>
+                <Text
+                  className="mt-0.5 text-[13px] text-zinc-500"
+                  numberOfLines={1}
+                >
+                  Sister • Christmas • $25 - $50
+                </Text>
+              </View>
+
+              <View
+                className="h-6 w-6 items-center justify-center rounded-full border border-2"
+                style={{ borderColor: "#1f7a5c" }}
+              ></View>
+            </Pressable>
             <Pressable
               className="mt-3 h-14 flex-row items-center justify-center gap-2 rounded-full bg-zinc-900"
               onPress={() => {

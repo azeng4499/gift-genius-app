@@ -60,5 +60,7 @@
     --chart-3: 30 80% 55%;
     --chart-4: 280 65% 60%;
     --chart-5: 340 75% 55%;
+    --sheet-surface: 154 16% 91%; /* ~#E5ECE9 */
+    --sheet-highlight: 151 16% 72%; /* ~#ACC3B8 */
   }
 }
