@@ -1,7 +1,10 @@
 import { ClerkProvider, useAuth } from "@clerk/clerk-expo";
 import { tokenCache } from "@clerk/clerk-expo/token-cache";
+import { PortalHost } from "@rn-primitives/portal";
 import { useFonts } from "expo-font";
+import { ThemeProvider } from "@react-navigation/native";
 import { Stack, useRouter, useSegments } from "expo-router";
+import { useColorScheme } from "nativewind";
 import { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -9,6 +12,8 @@ import "react-native-reanimated";
 
 import { ToastProvider } from "@/components/ui/toast";
 import { registerClerkTokenGetter } from "@/lib/api/token";
+import { DEV_MODE } from "@/lib/dev-mode";
+import { NAV_THEME } from "@/lib/theme";
 
 import "../global.css";
 import "../lib/nativewind-interop";
@@ -34,6 +39,12 @@ function AuthGate() {
   const router = useRouter();
 
   useEffect(() => {
+    // Design mode: skip the sign-in gate entirely, but still bounce away from
+    // the auth screens so we land on the app.
+    if (DEV_MODE) {
+      if (segments[0] === "(auth)") router.replace("/");
+      return;
+    }
     if (!isLoaded) return;
     const inAuthGroup = segments[0] === "(auth)";
     if (!isSignedIn && !inAuthGroup) {
@@ -43,7 +54,7 @@ function AuthGate() {
     }
   }, [isLoaded, isSignedIn, segments, router]);
 
-  if (!isLoaded) return null;
+  if (!DEV_MODE && !isLoaded) return null;
 
   return (
     <Stack>
@@ -78,6 +89,8 @@ export default function RootLayout() {
     "NotoSerif-SemiBold": require("../assets/fonts/NOTOSERIFSEMIBOLD.ttf"),
   });
 
+  const { colorScheme } = useColorScheme();
+
   if (!loaded) return null;
 
   return (
@@ -85,9 +98,12 @@ export default function RootLayout() {
       <BindToken />
       <GestureHandlerRootView className="flex-1">
         <SafeAreaProvider>
-          <ToastProvider>
-            <AuthGate />
-          </ToastProvider>
+          <ThemeProvider value={NAV_THEME[colorScheme ?? "light"]}>
+            <ToastProvider>
+              <AuthGate />
+            </ToastProvider>
+            <PortalHost />
+          </ThemeProvider>
         </SafeAreaProvider>
       </GestureHandlerRootView>
     </ClerkProvider>

@@ -1,4 +1,3 @@
-import { useUser } from "@clerk/clerk-expo";
 import BottomSheet, {
   BottomSheetBackdrop,
   BottomSheetView,
@@ -49,6 +48,7 @@ import {
   type QueueItemDto,
 } from "@/lib/api/client";
 import { getApiClient } from "@/lib/api";
+import { useAppUser } from "@/lib/use-app-user";
 import { friendlyErrorMessage } from "@/lib/api/errors";
 import {
   feedItemToQueueItem,
@@ -76,7 +76,7 @@ function isFeedQueueEmptyError(error: unknown): boolean {
 }
 
 export default function SwipeScreen() {
-  const { user, isLoaded: isClerkUserLoaded } = useUser();
+  const { user, isLoaded: isClerkUserLoaded } = useAppUser();
   const logFeedEvent = useCallback(
     (event: string, details: Record<string, unknown> = {}) => {
       console.log("[FeedDebug]", event, {

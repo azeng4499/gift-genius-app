@@ -1,4 +1,4 @@
-import { useClerk, useUser } from "@clerk/clerk-expo";
+import { useClerk } from "@clerk/clerk-expo";
 import { router } from "expo-router";
 import Constants from "expo-constants";
 import { ChevronRight, CircleUserRound } from "lucide-react-native";
@@ -18,6 +18,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { ThemedText } from "@/components/themed-text";
 import { loadProfilesForUser } from "@/lib/api/bootstrap";
 import { getApiClient } from "@/lib/api";
+import { useAppUser } from "@/lib/use-app-user";
 import { getGiftGeniusApiBaseUrl } from "@/lib/api/config";
 import {
   clearUserContext,
@@ -100,7 +101,7 @@ function SignOutRow() {
 }
 
 export default function ProfileScreen() {
-  const { user } = useUser();
+  const { user } = useAppUser();
   const api = useMemo(() => getApiClient(), []);
 
   const [currentFeedSummary, setCurrentFeedSummary] = useState<string | null>(null);
