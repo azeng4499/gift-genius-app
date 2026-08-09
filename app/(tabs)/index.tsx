@@ -1,8 +1,9 @@
-import BottomSheet, {
+import {
   BottomSheetBackdrop,
+  BottomSheetModal,
   BottomSheetView,
 } from "@gorhom/bottom-sheet";
-import { Link, router, useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -21,15 +22,7 @@ import {
 } from "react-native-safe-area-context";
 import { Text } from "@/components/ui/text";
 import { ThemedView } from "@/components/themed-view";
-import {
-  Bookmark,
-  Check,
-  ChevronDown,
-  CircleUserRound,
-  House,
-  Plus,
-  Ellipsis,
-} from "lucide-react-native";
+import { Check, ChevronDown, Plus, Ellipsis } from "lucide-react-native";
 
 import ProductCard from "@/components/product-card/product-card";
 import { SheetBackground } from "@/components/ui/sheet-background";
@@ -112,10 +105,23 @@ export default function SwipeScreen() {
   const feedListRef = useRef<FlatList<QueueItemDto>>(null);
   const interactedItemIdsRef = useRef<Set<string>>(new Set());
   const bootstrappedClerkUserIdRef = useRef<string | null>(null);
-  const bottomSheetRef = useRef<BottomSheet>(null);
+  const bottomSheetRef = useRef<BottomSheetModal>(null);
   const snapPoints = useMemo(() => ["50%", "100%"], []);
   const api = useMemo(() => getApiClient(), []);
   const toast = useToast();
+  const navigation = useNavigation();
+
+  // Instagram-style: tapping the Home tab while already on it jumps back to the
+  // top of the feed rather than re-navigating.
+  useEffect(() => {
+    const unsubscribe = navigation.addListener("tabPress" as never, () => {
+      if (feedItems.length > 0 && feedHeight > 0) {
+        feedListRef.current?.scrollToIndex({ index: 0, animated: true });
+        setCurrentCardIndex(0);
+      }
+    });
+    return unsubscribe;
+  }, [navigation, feedItems.length, feedHeight]);
 
   useEffect(() => {
     let cancelled = false;
@@ -260,7 +266,7 @@ export default function SwipeScreen() {
           nextProfileName: feed.name,
         });
         await resetAndLoadFeedCards();
-        bottomSheetRef.current?.close();
+        bottomSheetRef.current?.dismiss();
       } catch (error) {
         toast.show({ message: friendlyErrorMessage(error), variant: "error" });
       }
@@ -684,7 +690,7 @@ export default function SwipeScreen() {
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-white">
+    <SafeAreaView className="flex-1 bg-white" edges={["top", "left", "right"]}>
       <StatusBar style="dark" />
       <ThemedView className="w-full h-full bg-white">
         <View className="w-full flex-row items-center px-4 pb-4 pt-2 border-b border-zinc-200">
@@ -696,7 +702,7 @@ export default function SwipeScreen() {
             accessibilityRole="button"
             accessibilityLabel="Switch person"
             hitSlop={8}
-            onPress={() => bottomSheetRef.current?.snapToIndex(0)}
+            onPress={() => bottomSheetRef.current?.present()}
           >
             <Text
               className="text-lg text-slate-800"
@@ -774,49 +780,9 @@ export default function SwipeScreen() {
             </View>
           ) : null}
         </View>
-        <View className="w-full flex-row items-center border-t border-zinc-200 px-2 pt-2 pb-1">
-          <Pressable
-            className="flex-1 items-center py-1"
-            accessibilityRole="button"
-            accessibilityLabel="Home"
-            hitSlop={12}
-            onPress={() => {
-              if (feedItems.length > 0 && feedHeight > 0) {
-                feedListRef.current?.scrollToIndex({
-                  index: 0,
-                  animated: true,
-                });
-                setCurrentCardIndex(0);
-              }
-            }}
-          >
-            <House size={22} color="black" strokeWidth={1.5} />
-          </Pressable>
-          <Link href="/bookmarks" asChild>
-            <Pressable
-              className="flex-1 items-center py-1"
-              accessibilityRole="button"
-              accessibilityLabel="Saved items"
-              hitSlop={12}
-            >
-              <Bookmark size={22} color="black" strokeWidth={1.5} />
-            </Pressable>
-          </Link>
-          <Link href="/profile" asChild>
-            <Pressable
-              className="flex-1 items-center py-1"
-              accessibilityRole="button"
-              accessibilityLabel="Profile"
-              hitSlop={12}
-            >
-              <CircleUserRound size={22} color="black" strokeWidth={1.5} />
-            </Pressable>
-          </Link>
-        </View>
       </ThemedView>
-      <BottomSheet
+      <BottomSheetModal
         ref={bottomSheetRef}
-        index={-1}
         snapPoints={snapPoints}
         enableDynamicSizing={false}
         enablePanDownToClose
@@ -907,8 +873,8 @@ export default function SwipeScreen() {
             <Pressable
               className="mt-3 h-14 flex-row items-center justify-center gap-2 rounded-full bg-zinc-900"
               onPress={() => {
-                bottomSheetRef.current?.close();
-                router.push("/feed/new");
+                bottomSheetRef.current?.dismiss();
+                router.push("/feed/start");
               }}
             >
               <Plus size={18} color="white" strokeWidth={2.5} />
@@ -918,7 +884,7 @@ export default function SwipeScreen() {
             </Pressable>
           </View>
         </BottomSheetView>
-      </BottomSheet>
+      </BottomSheetModal>
     </SafeAreaView>
   );
 }

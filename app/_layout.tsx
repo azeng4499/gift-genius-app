@@ -1,5 +1,6 @@
 import { ClerkProvider, useAuth } from "@clerk/clerk-expo";
 import { tokenCache } from "@clerk/clerk-expo/token-cache";
+import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { PortalHost } from "@rn-primitives/portal";
 import { useFonts } from "expo-font";
 import { ThemeProvider } from "@react-navigation/native";
@@ -59,11 +60,10 @@ function AuthGate() {
   return (
     <Stack>
       <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-      <Stack.Screen name="index" options={{ headerShown: false }} />
+      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="feed/new" options={{ title: "Add Feed Person" }} />
       <Stack.Screen name="feed/settings" options={{ title: "Feed settings" }} />
-      <Stack.Screen name="bookmarks" options={{ title: "Bookmarked Items" }} />
-      <Stack.Screen name="profile" options={{ title: "Profile" }} />
+      <Stack.Screen name="feed/start" options={{ title: "Start a feed" }} />
     </Stack>
   );
 }
@@ -98,12 +98,14 @@ export default function RootLayout() {
       <BindToken />
       <GestureHandlerRootView className="flex-1">
         <SafeAreaProvider>
-          <ThemeProvider value={NAV_THEME[colorScheme ?? "light"]}>
-            <ToastProvider>
-              <AuthGate />
-            </ToastProvider>
-            <PortalHost />
-          </ThemeProvider>
+          <BottomSheetModalProvider>
+            <ThemeProvider value={NAV_THEME[colorScheme ?? "light"]}>
+              <ToastProvider>
+                <AuthGate />
+              </ToastProvider>
+              <PortalHost />
+            </ThemeProvider>
+          </BottomSheetModalProvider>
         </SafeAreaProvider>
       </GestureHandlerRootView>
     </ClerkProvider>

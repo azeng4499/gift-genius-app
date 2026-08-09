@@ -257,7 +257,7 @@ export default function BookmarksScreen() {
     : "Saved products for the currently selected feed.";
 
   return (
-    <SafeAreaView className="flex-1 bg-white" edges={["bottom"]}>
+    <SafeAreaView className="flex-1 bg-white" edges={["top"]}>
       <View className="flex-1 px-4">
         <View className="flex-row items-start justify-between gap-3 pb-3 pt-2">
           <View className="min-w-0 flex-1">

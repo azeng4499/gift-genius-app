@@ -157,7 +157,7 @@ export default function ProfileScreen() {
   }, []);
 
   return (
-    <SafeAreaView className="flex-1 bg-white" edges={["bottom"]}>
+    <SafeAreaView className="flex-1 bg-white" edges={["top"]}>
       <ScrollView className="flex-1 px-4" keyboardShouldPersistTaps="handled">
         <View className="items-center pb-4 pt-2">
           <View className="mb-3 h-20 w-20 items-center justify-center overflow-hidden rounded-full bg-zinc-100">
