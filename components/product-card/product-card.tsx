@@ -7,13 +7,14 @@ import { Separator } from "@/components/ui/separator";
 
 import {
   ArrowRight,
-  Heart,
+  Bookmark,
   ShoppingBag,
   Star,
   ThumbsDown,
 } from "lucide-react-native";
 import { useState } from "react";
 import { Pressable, View } from "react-native";
+import * as Haptics from "expo-haptics";
 
 const NO_IMAGE = "https://placehold.co/600x600?text=No+Image";
 
@@ -62,7 +63,12 @@ const ProductCard = ({ item }: ProductCardProps) => {
         />
         <View className="absolute bottom-3 right-3 items-center gap-3 flex flex-row">
           <Pressable
-            onPress={() => setIsDisliked((prev) => !prev)}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(
+                () => {},
+              );
+              setIsDisliked((prev) => !prev);
+            }}
             hitSlop={8}
             accessibilityRole="button"
             accessibilityLabel={
@@ -79,19 +85,24 @@ const ProductCard = ({ item }: ProductCardProps) => {
             />
           </Pressable>
           <Pressable
-            onPress={() => setIsFavorite((prev) => !prev)}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(
+                () => {},
+              );
+              setIsFavorite((prev) => !prev);
+            }}
             hitSlop={8}
             accessibilityRole="button"
             accessibilityLabel={
-              isFavorite ? "Remove from favorites" : "Add to favorites"
+              isFavorite ? "Remove bookmark" : "Bookmark this gift"
             }
             style={ACTION_BUTTON_SHADOW}
             className="h-11 w-11 items-center justify-center rounded-full bg-white/90"
           >
-            <Heart
+            <Bookmark
               size={22}
-              color={isFavorite ? "#ef4444" : "#3f3f46"}
-              fill={isFavorite ? "#ef4444" : "transparent"}
+              color={isFavorite ? "#f59e0b" : "#3f3f46"}
+              fill={isFavorite ? "#f59e0b" : "transparent"}
               strokeWidth={2}
             />
           </Pressable>

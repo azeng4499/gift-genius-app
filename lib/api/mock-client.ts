@@ -150,10 +150,80 @@ function makeProfile(overrides: Partial<ProfileDto> = {}): ProfileDto {
   };
 }
 
-// In-memory stores so mutations persist for the session.
-const profiles: ProfileDto[] = [makeProfile({ id: "dev-profile-1" })];
+// In-memory stores so mutations persist for the session. Several seeded
+// profiles so the feed switcher has real options to toggle between.
+const profiles: ProfileDto[] = [
+  makeProfile({
+    id: "dev-profile-1",
+    label: "Alex (Brother)",
+    relationship: "sibling",
+    occasion: "birthday",
+    budget_min: 25,
+    budget_max: 100,
+  }),
+  makeProfile({
+    id: "dev-profile-2",
+    label: "Sophia (Sister)",
+    relationship: "sibling",
+    occasion: "christmas",
+    budget_min: 25,
+    budget_max: 50,
+    hobby_ids: ["hobby-reading", "hobby-yoga", "hobby-photography"],
+  }),
+  makeProfile({
+    id: "dev-profile-3",
+    label: "Mom",
+    relationship: "parent",
+    occasion: "mother's day",
+    budget_min: 50,
+    budget_max: 150,
+    hobby_ids: ["hobby-cooking", "hobby-reading"],
+  }),
+  makeProfile({
+    id: "dev-profile-4",
+    label: "Dad",
+    relationship: "parent",
+    occasion: "father's day",
+    budget_min: 40,
+    budget_max: 120,
+    hobby_ids: ["hobby-hiking", "hobby-music"],
+  }),
+  makeProfile({
+    id: "dev-profile-5",
+    label: "Priya (Friend)",
+    relationship: "friend",
+    occasion: "birthday",
+    budget_min: 20,
+    budget_max: 60,
+    hobby_ids: ["hobby-gaming", "hobby-music"],
+  }),
+  makeProfile({
+    id: "dev-profile-6",
+    label: "Grandma",
+    relationship: "grandparent",
+    occasion: "holidays",
+    budget_min: 30,
+    budget_max: 80,
+    hobby_ids: ["hobby-cooking", "hobby-photography"],
+  }),
+  makeProfile({
+    id: "dev-profile-7",
+    label: "Jordan (Coworker)",
+    relationship: "coworker",
+    occasion: "farewell",
+    budget_min: 15,
+    budget_max: 40,
+    hobby_ids: ["hobby-coffee"],
+  }),
+];
 const savedByProfile: Record<string, Set<string>> = {
   "dev-profile-1": new Set(["evt-2", "evt-4"]),
+  "dev-profile-2": new Set(["evt-1"]),
+  "dev-profile-3": new Set(),
+  "dev-profile-4": new Set(["evt-3"]),
+  "dev-profile-5": new Set(),
+  "dev-profile-6": new Set(),
+  "dev-profile-7": new Set(),
 };
 
 function hobbiesFor(ids: string[]): HobbyDto[] {

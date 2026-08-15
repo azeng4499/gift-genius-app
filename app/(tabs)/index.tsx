@@ -1,8 +1,3 @@
-import {
-  BottomSheetBackdrop,
-  BottomSheetModal,
-  BottomSheetView,
-} from "@gorhom/bottom-sheet";
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { StatusBar } from "expo-status-bar";
@@ -16,16 +11,17 @@ import {
   View,
   ActivityIndicator,
 } from "react-native";
-import {
-  SafeAreaView,
-  useSafeAreaInsets,
-} from "react-native-safe-area-context";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Text } from "@/components/ui/text";
 import { ThemedView } from "@/components/themed-view";
-import { Check, ChevronDown, Plus, Ellipsis } from "lucide-react-native";
+import { ChevronDown, Plus, Ellipsis } from "lucide-react-native";
 
 import ProductCard from "@/components/product-card/product-card";
-import { SheetBackground } from "@/components/ui/sheet-background";
+import {
+  SelectSheet,
+  type SelectSheetItem,
+  type SelectSheetRef,
+} from "@/components/ui/select-sheet";
 import {
   bootstrapFromClerkUser,
   loadProfilesForUser,
@@ -69,7 +65,6 @@ export default function SwipeScreen() {
     [],
   );
 
-  const insets = useSafeAreaInsets();
   const [feedHeight, setFeedHeight] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [bootstrapping, setBootstrapping] = useState(true);
@@ -105,8 +100,7 @@ export default function SwipeScreen() {
   const feedListRef = useRef<FlatList<QueueItemDto>>(null);
   const interactedItemIdsRef = useRef<Set<string>>(new Set());
   const bootstrappedClerkUserIdRef = useRef<string | null>(null);
-  const bottomSheetRef = useRef<BottomSheetModal>(null);
-  const snapPoints = useMemo(() => ["50%", "100%"], []);
+  const bottomSheetRef = useRef<SelectSheetRef>(null);
   const api = useMemo(() => getApiClient(), []);
   const toast = useToast();
   const navigation = useNavigation();
@@ -272,6 +266,32 @@ export default function SwipeScreen() {
       }
     },
     [api, logFeedEvent, resetAndLoadFeedCards, toast],
+  );
+
+  // Feed rows for the switcher sheet: title is the feed name, subtitle a
+  // "relationship • occasion • budget" summary (fields that are set).
+  const feedSelectItems: SelectSheetItem[] = useMemo(
+    () =>
+      availableFeeds.map((feed) => {
+        const budget =
+          feed.budgetMin != null && feed.budgetMax != null
+            ? `$${feed.budgetMin} - $${feed.budgetMax}`
+            : null;
+        const subtitle = [feed.relationship, feed.occasion, budget]
+          .filter(Boolean)
+          .join(" • ");
+        return {
+          id: feed.id,
+          title: feed.name,
+          subtitle: subtitle.length > 0 ? subtitle : undefined,
+        };
+      }),
+    [availableFeeds],
+  );
+
+  const selectedFeedId = useMemo(
+    () => availableFeeds.find((feed) => feed.name === activeFeedName)?.id ?? null,
+    [availableFeeds, activeFeedName],
   );
 
   useEffect(() => {
@@ -486,18 +506,6 @@ export default function SwipeScreen() {
     // including them re-runs this effect on every render and thrashes bootstrap.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isClerkUserLoaded, user?.id]);
-
-  const renderBackdrop = useCallback(
-    (props: any) => (
-      <BottomSheetBackdrop
-        {...props}
-        disappearsOnIndex={-1}
-        appearsOnIndex={0}
-        opacity={0.5}
-      />
-    ),
-    [],
-  );
 
   const onRefresh = useCallback(() => {
     const refresh = async () => {
@@ -781,110 +789,20 @@ export default function SwipeScreen() {
           ) : null}
         </View>
       </ThemedView>
-      <BottomSheetModal
+      <SelectSheet
         ref={bottomSheetRef}
-        snapPoints={snapPoints}
-        enableDynamicSizing={false}
-        enablePanDownToClose
-        topInset={insets.top}
-        backdropComponent={renderBackdrop}
-        backgroundComponent={SheetBackground}
-        handleIndicatorStyle={{ backgroundColor: "#ccc" }}
-      >
-        <BottomSheetView className="flex-1 p-4">
-          <View>
-            <Text
-              className="text-left text-xl text-slate-700"
-              fontStyle="noto-serif-bold"
-            >
-              Feeds
-            </Text>
-            <Text
-              className="text-left pb-6 pt-1 px-1"
-              fontStyle="sf-display-light"
-            >
-              Switch your feed to shop for someone else.
-            </Text>
-          </View>
-          <View className="gap-2.5">
-            {availableFeeds.map((feed) => {
-              const isActive = feed.name === activeFeedName;
-              return (
-                <Pressable
-                  key={feed.id}
-                  className="flex-row items-center justify-between rounded-2xl border px-4 py-3.5"
-                  style={{
-                    borderColor: isActive ? "#1f7a5c" : "#e4e4e7",
-                    backgroundColor: isActive
-                      ? "rgba(31,122,92,0.06)"
-                      : "white",
-                  }}
-                  onPress={() => switchToFeed(feed)}
-                >
-                  <View className="flex-1 pr-3">
-                    <Text className="text-base font-sf-display-semibold text-zinc-900">
-                      Sophia
-                    </Text>
-                    <Text
-                      className="mt-0.5 text-[13px] text-zinc-500"
-                      numberOfLines={1}
-                    >
-                      Sister • Christmas • $25 - $50
-                    </Text>
-                  </View>
-                  {isActive ? (
-                    <View
-                      className="h-6 w-6 items-center justify-center rounded-full"
-                      style={{ backgroundColor: "#1f7a5c" }}
-                    >
-                      <Check size={14} color="white" strokeWidth={3} />
-                    </View>
-                  ) : null}
-                </Pressable>
-              );
-            })}
-            <Pressable
-              className="flex-row items-center justify-between rounded-2xl border px-4 py-3.5"
-              style={{
-                borderColor: false ? "#1f7a5c" : "#e4e4e7",
-                backgroundColor: false ? "rgba(31,122,92,0.06)" : "white",
-              }}
-            >
-              <View className="flex-1 pr-3">
-                <Text
-                  className="text-base text-zinc-900"
-                  fontStyle="sf-rounded-semibold"
-                >
-                  Sophia
-                </Text>
-                <Text
-                  className="mt-0.5 text-[13px] text-zinc-500"
-                  numberOfLines={1}
-                >
-                  Sister • Christmas • $25 - $50
-                </Text>
-              </View>
-
-              <View
-                className="h-6 w-6 items-center justify-center rounded-full border border-2"
-                style={{ borderColor: "#1f7a5c" }}
-              ></View>
-            </Pressable>
-            <Pressable
-              className="mt-3 h-14 flex-row items-center justify-center gap-2 rounded-full bg-zinc-900"
-              onPress={() => {
-                bottomSheetRef.current?.dismiss();
-                router.push("/feed/start");
-              }}
-            >
-              <Plus size={18} color="white" strokeWidth={2.5} />
-              <Text className="text-center font-sf-display-semibold text-[16px] text-white">
-                Add someone
-              </Text>
-            </Pressable>
-          </View>
-        </BottomSheetView>
-      </BottomSheetModal>
+        heading="Feeds"
+        subheading="Switch your feed to shop for someone else."
+        data={feedSelectItems}
+        selectedId={selectedFeedId}
+        onSelect={(item) => {
+          const feed = availableFeeds.find((f) => f.id === item.id);
+          if (feed) switchToFeed(feed);
+        }}
+        ctaLabel="Add someone"
+        ctaIcon={<Plus size={18} color="white" strokeWidth={2.5} />}
+        ctaSlug="/feed/start"
+      />
     </SafeAreaView>
   );
 }

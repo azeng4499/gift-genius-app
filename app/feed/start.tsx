@@ -1,24 +1,34 @@
-import { Stack } from "expo-router";
-import { Check, ChevronDown } from "lucide-react-native";
-import { useEffect, useMemo, useState } from "react";
-import {
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  View,
-} from "react-native";
+import { router, Stack } from "expo-router";
+import { ArrowRight, ChevronDown, ChevronLeft, Plus } from "lucide-react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Pressable, ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { AuthInput } from "@/components/ui/auth-input";
 import { CtaButton } from "@/components/ui/cta-button";
 import { Text } from "@/components/ui/text";
+import {
+  SelectSheet,
+  type SelectSheetItem,
+  type SelectSheetRef,
+} from "@/components/ui/select-sheet";
 import { getApiClient } from "@/lib/api";
 import { loadProfilesForUser } from "@/lib/api/bootstrap";
 import type { FeedDto } from "@/lib/api/client";
-import { formatOccasionLabel, OCCASION_OPTIONS } from "@/lib/feed-form-shared";
+import {
+  formatOccasionLabel,
+  formatRelationshipLabel,
+  OCCASION_OPTIONS,
+} from "@/lib/feed-form-shared";
 import { getCurrentUserId } from "@/lib/state/user-context";
+
+// Budget ranges, picked from a sheet instead of typed as min/max.
+const BUDGET_BUCKETS: SelectSheetItem[] = [
+  { id: "0-25", title: "Under $25" },
+  { id: "25-50", title: "$25 – $50" },
+  { id: "50-100", title: "$50 – $100" },
+  { id: "100-250", title: "$100 – $250" },
+  { id: "250+", title: "$250+" },
+];
 
 function SectionLabel({ children }: { children: string }) {
   return (
@@ -39,9 +49,9 @@ export default function StartFeedScreen() {
     null,
   );
   const [occasion, setOccasion] = useState("");
-  const [budgetMin, setBudgetMin] = useState("");
-  const [budgetMax, setBudgetMax] = useState("");
-  const [pickerOpen, setPickerOpen] = useState(false);
+  const [budgetBucketId, setBudgetBucketId] = useState<string | null>(null);
+  const profileSheetRef = useRef<SelectSheetRef>(null);
+  const budgetSheetRef = useRef<SelectSheetRef>(null);
 
   // Load the user's people so they can pick one from the dropdown.
   useEffect(() => {
@@ -63,51 +73,83 @@ export default function StartFeedScreen() {
 
   const selectedProfile =
     profiles.find((p) => p.id === selectedProfileId) ?? null;
+  const selectedBudget =
+    BUDGET_BUCKETS.find((b) => b.id === budgetBucketId) ?? null;
+
+  // Profile rows for the picker sheet. A profile is the person (not a feed), so
+  // the subtitle summarizes who they are — relationship • hobbies — with no
+  // occasion or budget (those belong to a feed).
+  const profileSelectItems: SelectSheetItem[] = useMemo(
+    () =>
+      profiles.map((profile) => {
+        const relation = profile.relationship
+          ? formatRelationshipLabel(profile.relationship)
+          : null;
+        const hobbies =
+          profile.interests.length > 0 ? profile.interests.join(", ") : null;
+        const subtitle = [relation, hobbies].filter(Boolean).join(" • ");
+        return {
+          id: profile.id,
+          title: profile.name,
+          subtitle: subtitle.length > 0 ? subtitle : undefined,
+        };
+      }),
+    [profiles],
+  );
 
   const onSubmit = () => {
     // Intentionally not wired up yet.
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-white" edges={["bottom"]}>
-      <Stack.Screen
-        options={{ title: "Start a feed", headerShadowVisible: false }}
-      />
-      <KeyboardAvoidingView
-        className="flex-1"
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
-      >
-        <ScrollView
-          className="flex-1"
-          contentContainerClassName="px-6 pt-2 pb-8"
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          <View>
-            <Text
-              className="text-left text-xl text-slate-700"
-              fontStyle="noto-serif-bold"
-            >
-              Start a new feed
-            </Text>
-            <Text
-              className="px-1 pb-6 pt-1 text-left"
-              fontStyle="sf-display-light"
-            >
-              Pick who you’re shopping for, the occasion, and your budget.
-            </Text>
-          </View>
+    <SafeAreaView className="flex-1 bg-white" edges={["top", "bottom"]}>
+      {/* Native header buttons get wrapped in an iOS "bubble" that can't be
+          removed, so render the header ourselves with a bare chevron. */}
+      <Stack.Screen options={{ headerShown: false }} />
 
-          <View className="gap-6">
+      <View className="h-11 justify-center px-2">
+        <Pressable
+          onPress={() => router.back()}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          className="h-11 w-11 items-center justify-center"
+        >
+          <ChevronLeft size={28} color="#0f172a" strokeWidth={2} />
+        </Pressable>
+      </View>
+
+      <ScrollView
+        className="flex-1"
+        contentContainerClassName="px-6 pt-2 pb-8"
+        showsVerticalScrollIndicator={false}
+      >
+        <View>
+          <Text
+            className="text-left text-xl text-slate-700"
+            fontStyle="noto-serif-bold"
+          >
+            Start a new feed
+          </Text>
+          <Text
+            className="px-1 pb-6 pt-1 text-left"
+            fontStyle="sf-display-light"
+          >
+            Pick who you’re shopping for, the occasion, and your budget.
+          </Text>
+        </View>
+
+        <View className="gap-6">
             {/* Profile dropdown */}
             <View>
               <SectionLabel>Who is this for?</SectionLabel>
               <Pressable
-                onPress={() => setPickerOpen(true)}
+                onPress={() => profileSheetRef.current?.present()}
                 accessibilityRole="button"
                 accessibilityLabel="Select a profile"
-                className="flex-row items-center justify-between rounded-xl border border-slate-300 bg-white p-4"
+                className={`flex-row items-center justify-between rounded-xl border bg-white p-4 ${
+                  selectedProfile ? "border-[#1f7a5c]" : "border-slate-300"
+                }`}
               >
                 <Text
                   className={
@@ -153,116 +195,67 @@ export default function StartFeedScreen() {
               </View>
             </View>
 
-            {/* Budget */}
+            {/* Budget bucket */}
             <View>
               <SectionLabel>What’s your budget?</SectionLabel>
-              <View className="flex-row gap-3">
-                <View className="flex-1">
-                  <AuthInput
-                    placeholder="Min $"
-                    keyboardType="numeric"
-                    value={budgetMin}
-                    onChangeText={setBudgetMin}
-                    returnKeyType="next"
-                  />
-                </View>
-                <View className="flex-1">
-                  <AuthInput
-                    placeholder="Max $"
-                    keyboardType="numeric"
-                    value={budgetMax}
-                    onChangeText={setBudgetMax}
-                    returnKeyType="done"
-                  />
-                </View>
-              </View>
+              <Pressable
+                onPress={() => budgetSheetRef.current?.present()}
+                accessibilityRole="button"
+                accessibilityLabel="Select a budget"
+                className={`flex-row items-center justify-between rounded-xl border bg-white p-4 ${
+                  selectedBudget ? "border-[#1f7a5c]" : "border-slate-300"
+                }`}
+              >
+                <Text
+                  className={
+                    selectedBudget ? "text-slate-900" : "text-slate-400"
+                  }
+                  fontStyle="sf-rounded-medium"
+                >
+                  {selectedBudget?.title ?? "Select a budget"}
+                </Text>
+                <ChevronDown size={20} color="#64748b" />
+              </Pressable>
             </View>
-
-            <CtaButton
-              label="Start browsing"
-              onPress={onSubmit}
-              className="mt-4"
-            />
           </View>
         </ScrollView>
-      </KeyboardAvoidingView>
 
-      {/* Profile picker */}
-      <Modal
-        visible={pickerOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setPickerOpen(false)}
-      >
-        <Pressable
-          className="flex-1 justify-end bg-black/40"
-          onPress={() => setPickerOpen(false)}
-        >
-          <Pressable
-            className="rounded-t-2xl bg-white px-6 pb-8 pt-3"
-            onPress={(e) => e.stopPropagation()}
-          >
-            <View className="mb-3 items-center">
-              <View className="h-1 w-10 rounded-full bg-zinc-300" />
-            </View>
-            <Text
-              className="text-left text-xl text-slate-700"
-              fontStyle="noto-serif-bold"
-            >
-              Choose a profile
-            </Text>
-            <Text
-              className="px-1 pb-4 pt-1 text-left"
-              fontStyle="sf-display-light"
-            >
-              Whose gift feed do you want to open?
-            </Text>
+        {/* Pinned primary action. */}
+        <View className="px-6 pb-2 pt-2">
+          <CtaButton
+            label="Start browsing"
+            onPress={onSubmit}
+            variant="dark"
+            icon={<ArrowRight size={18} color="white" strokeWidth={2.5} />}
+          />
+        </View>
 
-            {profiles.length === 0 ? (
-              <Text className="px-1 py-4 text-slate-400" fontStyle="sf-display-light">
-                No profiles yet. Add someone first.
-              </Text>
-            ) : (
-              <View className="gap-2.5">
-                {profiles.map((profile) => {
-                  const isSelected = profile.id === selectedProfileId;
-                  return (
-                    <Pressable
-                      key={profile.id}
-                      onPress={() => {
-                        setSelectedProfileId(profile.id);
-                        setPickerOpen(false);
-                      }}
-                      className="flex-row items-center justify-between rounded-2xl border px-4 py-3.5"
-                      style={{
-                        borderColor: isSelected ? "#1f7a5c" : "#e2e8f0",
-                        backgroundColor: isSelected
-                          ? "rgba(31,122,92,0.06)"
-                          : "white",
-                      }}
-                    >
-                      <Text
-                        className="text-base text-slate-900"
-                        fontStyle="sf-display-semibold"
-                      >
-                        {profile.name}
-                      </Text>
-                      {isSelected ? (
-                        <View
-                          className="h-6 w-6 items-center justify-center rounded-full"
-                          style={{ backgroundColor: "#1f7a5c" }}
-                        >
-                          <Check size={14} color="white" strokeWidth={3} />
-                        </View>
-                      ) : null}
-                    </Pressable>
-                  );
-                })}
-              </View>
-            )}
-          </Pressable>
-        </Pressable>
-      </Modal>
+      <SelectSheet
+        ref={profileSheetRef}
+        heading="Choose a profile"
+        subheading="Pick the person you’re shopping for."
+        data={profileSelectItems}
+        selectedId={selectedProfileId}
+        onSelect={(item) => {
+          setSelectedProfileId(item.id);
+          profileSheetRef.current?.dismiss();
+        }}
+        ctaLabel="Add someone"
+        ctaIcon={<Plus size={18} color="white" strokeWidth={2.5} />}
+        ctaSlug="/feed/new"
+      />
+
+      <SelectSheet
+        ref={budgetSheetRef}
+        heading="What’s your budget?"
+        subheading="Pick a range and we’ll match gift ideas to it."
+        data={BUDGET_BUCKETS}
+        selectedId={budgetBucketId}
+        onSelect={(item) => {
+          setBudgetBucketId(item.id);
+          budgetSheetRef.current?.dismiss();
+        }}
+      />
     </SafeAreaView>
   );
 }
