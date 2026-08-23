@@ -97,6 +97,9 @@ export type FeedItemDto = {
   image_url: string;
   product_url: string;
   category: string;
+  /** Canopy star rating (0–5). Null when the product has no ratings yet. */
+  rating?: number | null;
+  ratings_total?: number | null;
   slot_type: "interest" | "adjacent" | "wildcard" | "occasion";
   hobby_id: string | null;
   /** Display name for hobby_id when present. */
@@ -116,6 +119,8 @@ export type QueueItemDto = {
   currency: string | null;
   buyUrl: string | null;
   tags: string[];
+  rating: number | null;
+  ratingsCount: number | null;
 };
 
 export type SavedItemDto = {
@@ -129,6 +134,8 @@ export type SavedItemDto = {
   hobby_id: string | null;
   hobby_name?: string | null;
   angle: string | null;
+  rating?: number | null;
+  ratings_total?: number | null;
   saved_at: string | null;
 };
 

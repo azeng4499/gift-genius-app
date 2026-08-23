@@ -99,6 +99,8 @@ function cardSnapshotToQueueItem(item: {
   product_url: string;
   slot_type?: string | null;
   hobby_name?: string | null;
+  rating?: number | null;
+  ratings_total?: number | null;
 }): QueueItemDto {
   return {
     id: item.feed_event_id,
@@ -113,11 +115,27 @@ function cardSnapshotToQueueItem(item: {
       hobbyName: item.hobby_name,
       slotType: item.slot_type,
     }),
+    rating: typeof item.rating === "number" ? item.rating : null,
+    ratingsCount:
+      typeof item.ratings_total === "number" ? item.ratings_total : null,
   };
 }
 
 export function feedItemToQueueItem(item: FeedItemDto): QueueItemDto {
   return cardSnapshotToQueueItem(item);
+}
+
+/** Display price for a card. Canopy returns 0 for items with no buyable offer. */
+export function formatPrice(
+  item: Pick<QueueItemDto, "priceCents" | "currency"> | null
+): string {
+  if (!item || item.priceCents == null || !item.currency) {
+    return "Price unavailable";
+  }
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: item.currency,
+  }).format(item.priceCents / 100);
 }
 
 export function savedItemToBookmarkItem(item: SavedItemDto): BookmarkItemDto {
@@ -128,6 +146,15 @@ export function savedItemToBookmarkItem(item: SavedItemDto): BookmarkItemDto {
 }
 
 export type InteractionKind = "pass" | "save" | "shop" | "dislike";
+
+/**
+ * Interactions that leave a lasting mark on the card. "shop" is excluded — it
+ * hands off to Amazon rather than recording a verdict on the item.
+ */
+export type AppliedInteraction = Extract<
+  InteractionKind,
+  "pass" | "save" | "dislike"
+>;
 
 export function interactionToSignal(
   type: InteractionKind

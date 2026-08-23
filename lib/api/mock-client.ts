@@ -57,6 +57,8 @@ const MOCK_FEED_ITEMS: FeedItemDto[] = [
     hobby_id: "hobby-coffee",
     hobby_name: "Coffee",
     angle: "gear",
+    rating: 4.7,
+    ratings_total: 1142,
     score: 0.94,
   },
   {
@@ -71,6 +73,8 @@ const MOCK_FEED_ITEMS: FeedItemDto[] = [
     hobby_id: "hobby-hiking",
     hobby_name: "Hiking",
     angle: "gear",
+    rating: 4,
+    ratings_total: 318,
     score: 0.88,
   },
   {
@@ -85,6 +89,8 @@ const MOCK_FEED_ITEMS: FeedItemDto[] = [
     hobby_id: "hobby-gaming",
     hobby_name: "Gaming",
     angle: "upgrade",
+    rating: 4.5,
+    ratings_total: 2064,
     score: 0.81,
   },
   {
@@ -99,6 +105,8 @@ const MOCK_FEED_ITEMS: FeedItemDto[] = [
     hobby_id: "hobby-cooking",
     hobby_name: "Cooking",
     angle: "staple",
+    rating: 4.9,
+    ratings_total: 15320,
     score: 0.79,
   },
   {
@@ -113,6 +121,9 @@ const MOCK_FEED_ITEMS: FeedItemDto[] = [
     hobby_id: null,
     hobby_name: null,
     angle: null,
+    // Unrated, so design mode also exercises the hidden-rating case.
+    rating: null,
+    ratings_total: null,
     score: 0.6,
   },
   {
@@ -127,6 +138,8 @@ const MOCK_FEED_ITEMS: FeedItemDto[] = [
     hobby_id: "hobby-photography",
     hobby_name: "Photography",
     angle: "fun",
+    rating: 3.4,
+    ratings_total: 87,
     score: 0.72,
   },
 ];

@@ -18,16 +18,12 @@ import { useToast } from "@/components/ui/toast";
 import { getApiClient } from "@/lib/api";
 import { loadProfilesForUser, startSessionForProfile } from "@/lib/api/bootstrap";
 import type { FeedDto } from "@/lib/api/client";
-import { savedItemToBookmarkItem, type BookmarkItemDto } from "@/lib/api/mappers";
+import {
+  formatPrice,
+  savedItemToBookmarkItem,
+  type BookmarkItemDto,
+} from "@/lib/api/mappers";
 import { getCurrentFeedId, getCurrentUserId } from "@/lib/state/user-context";
-
-function formatPrice(item: BookmarkItemDto): string {
-  if (item.priceCents == null || !item.currency) return "Price unavailable";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: item.currency,
-  }).format(item.priceCents / 100);
-}
 
 function formatSavedAt(savedAt: string | null): string | null {
   if (!savedAt) return null;

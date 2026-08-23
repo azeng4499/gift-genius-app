@@ -34,6 +34,7 @@ import { friendlyErrorMessage } from "@/lib/api/errors";
 import {
   feedItemToQueueItem,
   interactionToSignal,
+  type AppliedInteraction,
   type InteractionKind,
 } from "@/lib/api/mappers";
 import { useToast } from "@/components/ui/toast";
@@ -42,6 +43,19 @@ import {
   getCurrentSessionId,
   getCurrentUserId,
 } from "@/lib/state/user-context";
+
+// Signals are one-way on this API, so re-tapping an applied action just says so.
+const ALREADY_APPLIED_MESSAGE: Record<AppliedInteraction, string> = {
+  save: "Already saved",
+  pass: "Already skipped",
+  dislike: "Already disliked",
+};
+
+function leavesAppliedState(
+  type: InteractionKind,
+): type is AppliedInteraction {
+  return type !== "shop";
+}
 
 function isFeedQueueEmptyError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
@@ -88,11 +102,10 @@ export default function SwipeScreen() {
   // Bumped to cancel any in-flight polling loop (feed switch, refresh, unmount).
   const pollTokenRef = useRef(0);
   const [interactionInFlight, setInteractionInFlight] = useState(false);
-  const [activeInteractionType, setActiveInteractionType] = useState<
-    "pass" | "save" | null
-  >(null);
+  const [activeInteractionType, setActiveInteractionType] =
+    useState<AppliedInteraction | null>(null);
   const [interactionByItemId, setInteractionByItemId] = useState<
-    Record<string, "pass" | "save">
+    Record<string, AppliedInteraction>
   >({});
   const [pendingScrollIndex, setPendingScrollIndex] = useState<number | null>(
     null,
@@ -373,18 +386,18 @@ export default function SwipeScreen() {
         return;
       }
 
-      // Re-tapping an already-applied save/pass: signals are one-way on this
-      // API, so just acknowledge instead of pretending to undo.
+      // Re-tapping an already-applied action: signals are one-way on this API,
+      // so just acknowledge instead of pretending to undo.
       const appliedForItem = interactionByItemId[currentItem.id];
       if (opts?.clear && appliedForItem === type) {
         toast.show({
-          message: type === "save" ? "Already saved" : "Already skipped",
+          message: ALREADY_APPLIED_MESSAGE[appliedForItem],
           variant: "info",
         });
         return;
       }
 
-      const isVisualState = type === "save" || type === "pass";
+      const isVisualState = leavesAppliedState(type);
       setInteractionInFlight(true);
       setActiveInteractionType(isVisualState ? type : null);
       try {
@@ -620,7 +633,15 @@ export default function SwipeScreen() {
         />
       </View>
     ),
-    [activeInteractionType, feedHeight, interactionInFlight, submitInteraction],
+    [
+      activeInteractionType,
+      currentCardIndex,
+      feedHeight,
+      feedItems,
+      interactionByItemId,
+      interactionInFlight,
+      submitInteraction,
+    ],
   );
 
   useEffect(() => {
@@ -706,17 +727,18 @@ export default function SwipeScreen() {
             <Text>Logo</Text>
           </View>
           <Pressable
-            className="flex flex-row justify-center items-center gap-2"
+            className="flex shrink flex-row justify-center items-center gap-2"
             accessibilityRole="button"
-            accessibilityLabel="Switch person"
+            accessibilityLabel={`Switch person, currently ${activeFeedName}`}
             hitSlop={8}
             onPress={() => bottomSheetRef.current?.present()}
           >
             <Text
-              className="text-lg text-slate-800"
+              className="shrink text-lg text-slate-800"
               fontStyle="noto-serif-bold"
+              numberOfLines={1}
             >
-              Sophia
+              {activeFeedName}
             </Text>
             <View className="mt-2">
               <ChevronDown size={24} color="black" strokeWidth={1.5} />
