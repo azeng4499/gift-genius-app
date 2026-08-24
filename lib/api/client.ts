@@ -104,6 +104,12 @@ export type FeedItemDto = {
   hobby_id: string | null;
   /** Display name for hobby_id when present. */
   hobby_name?: string | null;
+  /**
+   * Whether the product itself supports the hobby label. hobby_id only records
+   * which hobby's search surfaced the item, and Amazon returns generic products
+   * for hobby-specific queries, so only label the card when this is true.
+   */
+  hobby_verified?: boolean | null;
   angle: string | null;
   score: number;
 };
@@ -133,6 +139,7 @@ export type SavedItemDto = {
   slot_type: FeedItemDto["slot_type"] | string | null;
   hobby_id: string | null;
   hobby_name?: string | null;
+  hobby_verified?: boolean | null;
   angle: string | null;
   rating?: number | null;
   ratings_total?: number | null;

@@ -68,15 +68,22 @@ const SLOT_LABELS: Record<string, string> = {
  * Priority: hobby name → occasion → soft wildcard/adjacent label.
  * Never show Amazon binding ("Paperback") or angle codes ("Gear").
  * Max 2 chips.
+ *
+ * The hobby chip requires hobbyVerified. An item's hobby records which hobby's
+ * search surfaced it, and Amazon keyword-matches loosely enough that a search
+ * for "crossword puzzle lap desk" returns a plain lap desk — tagging that
+ * "#CrosswordPuzzles" would describe the search rather than the product. The
+ * engine confirms the product itself first; until it has, the chip is omitted.
  */
 function buildCardTags(opts: {
   hobbyName?: string | null;
+  hobbyVerified?: boolean | null;
   slotType?: string | null;
 }): string[] {
   const tags: string[] = [];
 
   const hobby = opts.hobbyName?.trim();
-  if (hobby) {
+  if (hobby && opts.hobbyVerified === true) {
     tags.push(hobby);
   }
 
@@ -99,6 +106,7 @@ function cardSnapshotToQueueItem(item: {
   product_url: string;
   slot_type?: string | null;
   hobby_name?: string | null;
+  hobby_verified?: boolean | null;
   rating?: number | null;
   ratings_total?: number | null;
 }): QueueItemDto {
@@ -113,6 +121,7 @@ function cardSnapshotToQueueItem(item: {
     buyUrl: item.product_url || null,
     tags: buildCardTags({
       hobbyName: item.hobby_name,
+      hobbyVerified: item.hobby_verified,
       slotType: item.slot_type,
     }),
     rating: typeof item.rating === "number" ? item.rating : null,
