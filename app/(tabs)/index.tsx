@@ -9,7 +9,6 @@ import {
   NativeSyntheticEvent,
   NativeScrollEvent,
   View,
-  ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Text } from "@/components/ui/text";
@@ -17,6 +16,10 @@ import { ThemedView } from "@/components/themed-view";
 import { ChevronDown, Plus, Ellipsis } from "lucide-react-native";
 
 import ProductCard from "@/components/product-card/product-card";
+import {
+  SettingUpScreen,
+  LoadingState,
+} from "@/components/feed/setting-up-screen";
 import {
   SelectSheet,
   type SelectSheetItem,
@@ -44,11 +47,11 @@ import {
   getCurrentUserId,
 } from "@/lib/state/user-context";
 
-// Signals are one-way on this API, so re-tapping an applied action just says so.
-const ALREADY_APPLIED_MESSAGE: Record<AppliedInteraction, string> = {
-  save: "Already saved",
-  pass: "Already skipped",
-  dislike: "Already disliked",
+// Re-tapping an already-applied action undoes it. Message shown on undo.
+const UNDO_MESSAGE: Record<AppliedInteraction, string> = {
+  save: "Removed from your list",
+  pass: "Skip undone",
+  dislike: "Dislike removed",
 };
 
 function leavesAppliedState(
@@ -386,21 +389,42 @@ export default function SwipeScreen() {
         return;
       }
 
-      // Re-tapping an already-applied action: signals are one-way on this API,
-      // so just acknowledge instead of pretending to undo.
+      // Re-tapping an already-applied action toggles it off (undo). Only the
+      // visual actions (save/dislike/pass) leave an applied state to clear.
       const appliedForItem = interactionByItemId[currentItem.id];
-      if (opts?.clear && appliedForItem === type) {
-        toast.show({
-          message: ALREADY_APPLIED_MESSAGE[appliedForItem],
-          variant: "info",
-        });
-        return;
-      }
+      const isUndo =
+        opts?.clear === true &&
+        leavesAppliedState(type) &&
+        appliedForItem === type;
 
-      const isVisualState = leavesAppliedState(type);
       setInteractionInFlight(true);
-      setActiveInteractionType(isVisualState ? type : null);
+      setActiveInteractionType(null);
       try {
+        if (isUndo) {
+          logFeedEvent("interaction_undo", {
+            type,
+            itemId: currentItem.id,
+            itemTitle: currentItem.title,
+            currentCardIndex,
+          });
+          // Clear the recorded signal on the backend (reverses its side effects)
+          // and locally, so the button reads as inactive again. No scroll.
+          await api.deleteSignal(currentItem.id);
+          interactedItemIdsRef.current.delete(currentItem.id);
+          setInteractionByItemId((prev) => {
+            const next = { ...prev };
+            delete next[currentItem.id];
+            return next;
+          });
+          toast.show({
+            message: UNDO_MESSAGE[type as AppliedInteraction],
+            variant: "info",
+          });
+          return;
+        }
+
+        const isVisualState = leavesAppliedState(type);
+        setActiveInteractionType(isVisualState ? type : null);
         logFeedEvent("interaction_submit", {
           type,
           itemId: currentItem.id,
@@ -427,9 +451,10 @@ export default function SwipeScreen() {
           toast.show({ message: "Opening Amazon…", variant: "info" });
         }
 
-        // Buying ("shop") keeps the user on the card so they can come back;
-        // every other action advances the feed.
-        if (type !== "shop") {
+        // Card actions (save/dislike/shop) keep the user on the current card so
+        // they can undo in place or come back after buying — the user advances
+        // the feed by scrolling. Only a programmatic "pass" advances.
+        if (type === "pass") {
           await advanceToNextCard();
         }
       } catch (error) {
@@ -704,18 +729,7 @@ export default function SwipeScreen() {
   );
 
   if (bootstrapping) {
-    return (
-      <SafeAreaView className="flex-1 items-center justify-center bg-white px-8">
-        <StatusBar style="dark" />
-        <ActivityIndicator size="large" color="#1f7a5c" />
-        <Text className="mt-4 text-center font-noto-serif-bold text-base text-zinc-900">
-          Setting things up…
-        </Text>
-        <Text className="mt-1 text-center text-sm text-zinc-500">
-          Getting your gift lists ready.
-        </Text>
-      </SafeAreaView>
-    );
+    return <SettingUpScreen />;
   }
 
   return (
@@ -779,12 +793,10 @@ export default function SwipeScreen() {
           </View>
           {feedStatus === "loading" ? (
             <View className="absolute inset-0 items-center justify-center bg-white">
-              <Text
-                className="text-lg text-zinc-900"
-                fontStyle="noto-serif-bold"
-              >
-                loading
-              </Text>
+              <LoadingState
+                title="Loading more items…"
+                subtitle="Finding more gifts for you."
+              />
             </View>
           ) : null}
           {feedStatus === "error" ? (

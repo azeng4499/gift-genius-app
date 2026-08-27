@@ -40,10 +40,23 @@ const MOCK_HOBBIES: HobbyDto[] = [
   { id: "hobby-music", name: "Music", slug: "music" },
 ];
 
+// Canopy search results always come back with category "General" and a real
+// Amazon product URL; the engine tags each item with its slot/hobby/angle.
 function mockImage(seed: string): string {
   return `https://picsum.photos/seed/${seed}/600/600`;
 }
 
+function productUrl(asin: string): string {
+  return `https://www.amazon.com/dp/${asin}`;
+}
+
+// Mirrors the shape returned by GET /feed/:session_id (services/feed.js →
+// insertFeedEvents). Invariants the real engine guarantees:
+//   • interest  → hobby_id/hobby_name set, angle ∈ non-wildcard taxonomy angles
+//   • wildcard  → hobby_id/hobby_name set, angle === "wildcard"
+//   • adjacent  → hobby_id/hobby_name/angle all null (cross-hobby)
+//   • occasion  → hobby_id/hobby_name/angle all null
+//   • category is always "General"; rating is null when a product has no reviews
 const MOCK_FEED_ITEMS: FeedItemDto[] = [
   {
     feed_event_id: "evt-1",
@@ -51,13 +64,12 @@ const MOCK_FEED_ITEMS: FeedItemDto[] = [
     title: "Pour-Over Coffee Maker Set with Gooseneck Kettle",
     price: 48.99,
     image_url: mockImage("coffee1"),
-    product_url: "https://example.com/product/1",
-    category: "Kitchen",
+    product_url: productUrl("B0MOCK0001"),
+    category: "General",
     slot_type: "interest",
     hobby_id: "hobby-coffee",
     hobby_name: "Coffee",
-    hobby_verified: true,
-    angle: "gear",
+    angle: "consumable",
     rating: 4.7,
     ratings_total: 1142,
     score: 0.94,
@@ -68,32 +80,30 @@ const MOCK_FEED_ITEMS: FeedItemDto[] = [
     title: "Insulated Hiking Water Bottle, 32oz",
     price: 29.5,
     image_url: mockImage("hiking2"),
-    product_url: "https://example.com/product/2",
-    category: "Outdoors",
+    product_url: productUrl("B0MOCK0002"),
+    category: "General",
     slot_type: "interest",
     hobby_id: "hobby-hiking",
     hobby_name: "Hiking",
-    hobby_verified: true,
-    angle: "gear",
+    angle: "experience",
     rating: 4,
     ratings_total: 318,
     score: 0.88,
   },
   {
+    // Adjacent (cross-hobby) items carry no hobby/angle — the card shows the
+    // "Related interests" slot label only.
     feed_event_id: "evt-3",
     asin: "B0MOCK0003",
     title: "Mechanical Keyboard, Hot-Swappable RGB",
     price: 89.0,
     image_url: mockImage("gaming3"),
-    product_url: "https://example.com/product/3",
-    category: "Electronics",
+    product_url: productUrl("B0MOCK0003"),
+    category: "General",
     slot_type: "adjacent",
-    hobby_id: "hobby-gaming",
-    hobby_name: "Gaming",
-    // Unverified, so design mode shows a card whose hobby chip is suppressed
-    // and only the slot label remains.
-    hobby_verified: false,
-    angle: "upgrade",
+    hobby_id: null,
+    hobby_name: null,
+    angle: null,
     rating: 4.5,
     ratings_total: 2064,
     score: 0.81,
@@ -104,47 +114,48 @@ const MOCK_FEED_ITEMS: FeedItemDto[] = [
     title: "Cast Iron Skillet, Pre-Seasoned 12-inch",
     price: 34.95,
     image_url: mockImage("cooking4"),
-    product_url: "https://example.com/product/4",
-    category: "Kitchen",
+    product_url: productUrl("B0MOCK0004"),
+    category: "General",
     slot_type: "interest",
     hobby_id: "hobby-cooking",
     hobby_name: "Cooking",
-    hobby_verified: true,
-    angle: "staple",
+    angle: "skill",
     rating: 4.9,
     ratings_total: 15320,
     score: 0.79,
   },
   {
+    // Wildcard keeps its source hobby but uses the "wildcard" angle; the product
+    // itself is intentionally off-interest. Rating null exercises the
+    // hidden-rating case.
     feed_event_id: "evt-5",
     asin: "B0MOCK0005",
     title: "Cozy Weighted Blanket, 15lb",
     price: 59.99,
     image_url: mockImage("wildcard5"),
-    product_url: "https://example.com/product/5",
-    category: "Home",
+    product_url: productUrl("B0MOCK0005"),
+    category: "General",
     slot_type: "wildcard",
-    hobby_id: null,
-    hobby_name: null,
-    angle: null,
-    // Unrated, so design mode also exercises the hidden-rating case.
+    hobby_id: "hobby-reading",
+    hobby_name: "Reading",
+    angle: "wildcard",
     rating: null,
     ratings_total: null,
     score: 0.6,
   },
   {
+    // Occasion items carry no hobby/angle — "For the occasion" slot label only.
     feed_event_id: "evt-6",
     asin: "B0MOCK0006",
     title: "Instant Film Camera Bundle",
     price: 74.0,
     image_url: mockImage("photo6"),
-    product_url: "https://example.com/product/6",
-    category: "Electronics",
+    product_url: productUrl("B0MOCK0006"),
+    category: "General",
     slot_type: "occasion",
-    hobby_id: "hobby-photography",
-    hobby_name: "Photography",
-    hobby_verified: true,
-    angle: "fun",
+    hobby_id: null,
+    hobby_name: null,
+    angle: null,
     rating: 3.4,
     ratings_total: 87,
     score: 0.72,
@@ -193,8 +204,8 @@ const profiles: ProfileDto[] = [
   makeProfile({
     id: "dev-profile-3",
     label: "Mom",
-    relationship: "parent",
-    occasion: "mother's day",
+    relationship: "mom",
+    occasion: "mothers_day",
     budget_min: 50,
     budget_max: 150,
     hobby_ids: ["hobby-cooking", "hobby-reading"],
@@ -202,8 +213,8 @@ const profiles: ProfileDto[] = [
   makeProfile({
     id: "dev-profile-4",
     label: "Dad",
-    relationship: "parent",
-    occasion: "father's day",
+    relationship: "dad",
+    occasion: "fathers_day",
     budget_min: 40,
     budget_max: 120,
     hobby_ids: ["hobby-hiking", "hobby-music"],
@@ -221,7 +232,7 @@ const profiles: ProfileDto[] = [
     id: "dev-profile-6",
     label: "Grandma",
     relationship: "grandparent",
-    occasion: "holidays",
+    occasion: "christmas",
     budget_min: 30,
     budget_max: 80,
     hobby_ids: ["hobby-cooking", "hobby-photography"],
@@ -230,7 +241,7 @@ const profiles: ProfileDto[] = [
     id: "dev-profile-7",
     label: "Jordan (Coworker)",
     relationship: "coworker",
-    occasion: "farewell",
+    occasion: "just_because",
     budget_min: 15,
     budget_max: 40,
     hobby_ids: ["hobby-coffee"],
@@ -246,6 +257,17 @@ const savedByProfile: Record<string, Set<string>> = {
   "dev-profile-7": new Set(),
 };
 
+// Taxonomy angles (services/taxonomy → angles.txt); the engine seeds a weight
+// row for every hobby × angle pair on profile creation.
+const ANGLES = [
+  "consumable",
+  "skill",
+  "experience",
+  "aesthetic",
+  "social",
+  "wildcard",
+] as const;
+
 function hobbiesFor(ids: string[]): HobbyDto[] {
   return MOCK_HOBBIES.filter((h) => ids.includes(h.id));
 }
@@ -254,12 +276,15 @@ function toDetail(profile: ProfileDto): ProfileDetailDto {
   return {
     ...profile,
     hobbies: hobbiesFor(profile.hobby_ids),
-    weights: profile.hobby_ids.map((hobby_id) => ({
-      hobby_id,
-      angle: "gear",
-      weight: 1,
-      cooldown_until: null,
-    })),
+    // GET /profiles/:id returns one weight row per hobby × angle pair.
+    weights: profile.hobby_ids.flatMap((hobby_id) =>
+      ANGLES.map((angle) => ({
+        hobby_id,
+        angle,
+        weight: 1,
+        cooldown_until: null,
+      }))
+    ),
   };
 }
 
@@ -271,10 +296,11 @@ function feedItemToSaved(item: FeedItemDto): SavedItemDto {
     price: item.price,
     image_url: item.image_url,
     product_url: item.product_url,
+    rating: item.rating ?? null,
+    ratings_total: item.ratings_total ?? null,
     slot_type: item.slot_type,
     hobby_id: item.hobby_id,
     hobby_name: item.hobby_name,
-    hobby_verified: item.hobby_verified,
     angle: item.angle,
     saved_at: NOW,
   };
@@ -370,10 +396,13 @@ export function createMockApiClient() {
       profileId: string,
       occasion?: string
     ): Promise<SessionDto> {
+      // Backend uses the supplied occasion, else the profile's saved occasion,
+      // else "just_because".
+      const profile = profiles.find((p) => p.id === profileId);
       return delay({
         id: `dev-session-${profileId}`,
         profile_id: profileId,
-        occasion: occasion ?? "birthday",
+        occasion: occasion ?? profile?.occasion ?? "just_because",
         started_at: NOW,
         ended_at: null,
       });
@@ -392,6 +421,10 @@ export function createMockApiClient() {
     },
 
     async postSignal(): Promise<{ ok: true }> {
+      return delay({ ok: true } as const);
+    },
+
+    async deleteSignal(): Promise<{ ok: true }> {
       return delay({ ok: true } as const);
     },
 

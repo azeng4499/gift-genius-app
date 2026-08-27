@@ -196,9 +196,14 @@ export function createGiftGeniusApiClient(config: ApiClientConfig) {
   async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
     const method = opts.method ?? "GET";
     const retries = opts.retries ?? defaultRetries;
-    const headers: Record<string, string> = {
-      "content-type": "application/json",
-    };
+    const headers: Record<string, string> = {};
+
+    // Only advertise a JSON body when we actually send one. Fastify rejects an
+    // empty body when content-type is application/json (FST_ERR_CTP_EMPTY_JSON_BODY),
+    // which breaks bodyless DELETE/GET requests (e.g. undo signal, unsave).
+    if (opts.body != null) {
+      headers["content-type"] = "application/json";
+    }
 
     if (opts.requiresAuth) {
       const accessToken = await config.getAccessToken?.();
@@ -429,6 +434,18 @@ export function createGiftGeniusApiClient(config: ApiClientConfig) {
         body: { feed_event_id: feedEventId, signal },
         requiresAuth: true,
       });
+    },
+
+    /**
+     * Undo a previously recorded signal on a feed event (un-dislike / un-save).
+     * Reverses the signal's side effects and clears it so the item reads as
+     * un-acted again. No-op if the event has no signal.
+     */
+    async deleteSignal(feedEventId: string): Promise<{ ok: true }> {
+      return request<{ ok: true }>(
+        `/feed/signal/${encodeURIComponent(feedEventId)}`,
+        { method: "DELETE", requiresAuth: true }
+      );
     },
 
     async getSavedItems(
