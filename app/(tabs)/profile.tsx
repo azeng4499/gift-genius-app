@@ -171,7 +171,7 @@ export default function SettingsScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-white" edges={["top"]}>
-      <View className="px-6 pb-4 pt-2">
+      <View className="px-6 pb-4 pt-6">
         <Text className="text-xl text-slate-700" fontStyle="noto-serif-bold">
           Settings
         </Text>

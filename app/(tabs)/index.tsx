@@ -102,6 +102,10 @@ export default function SwipeScreen() {
     "ready",
   );
   const [feedError, setFeedError] = useState<string | null>(null);
+  // True while the very first batch is loading or the backend is still computing
+  // recommendations (no cards yet). Drives the full-area "preparing" state so
+  // the feed never sits blank; false + zero items means a genuinely empty feed.
+  const [feedPreparing, setFeedPreparing] = useState(true);
   // Bumped to cancel any in-flight polling loop (feed switch, refresh, unmount).
   const pollTokenRef = useRef(0);
   const [interactionInFlight, setInteractionInFlight] = useState(false);
@@ -232,13 +236,23 @@ export default function SwipeScreen() {
       try {
         const { count, preparing } = await loadMoreFeedItems();
         if (token !== pollTokenRef.current) return;
-        if (count > 0) return;
-        if (!preparing) return;
+        if (count > 0) {
+          setFeedPreparing(false);
+          return;
+        }
+        // Backend finished computing but there's nothing to show.
+        if (!preparing) {
+          setFeedPreparing(false);
+          return;
+        }
       } catch {
         if (token !== pollTokenRef.current) return;
         // Transient error — keep retrying until the max wait.
       }
-      if (Date.now() - startedAt > MAX_WAIT_MS) return;
+      if (Date.now() - startedAt > MAX_WAIT_MS) {
+        setFeedPreparing(false);
+        return;
+      }
       setTimeout(tick, INTERVAL_MS);
     };
 
@@ -253,14 +267,21 @@ export default function SwipeScreen() {
     setCurrentCardIndex(0);
     interactedItemIdsRef.current.clear();
     setInteractionByItemId({});
+    setFeedPreparing(true);
     try {
       const { count, preparing } = await loadMoreFeedItems();
-      // Empty but still being computed for the first time — poll until items
-      // arrive instead of dead-ending on an empty state.
-      if (count === 0 && preparing) {
+      if (count > 0) {
+        setFeedPreparing(false);
+      } else if (preparing) {
+        // Empty but still being computed for the first time — poll until items
+        // arrive instead of dead-ending on an empty state.
         startFeedPolling();
+      } else {
+        // Genuinely empty feed.
+        setFeedPreparing(false);
       }
     } catch (error) {
+      setFeedPreparing(false);
       if (isFeedQueueEmptyError(error)) return;
       throw error;
     }
@@ -524,6 +545,7 @@ export default function SwipeScreen() {
         if (!cancelled) {
           // Allow a retry via pull-to-refresh / next mount.
           bootstrappedClerkUserIdRef.current = null;
+          setFeedPreparing(false);
           toast.show({
             message: friendlyErrorMessage(error, "We couldn’t load your gifts."),
             variant: "error",
@@ -642,22 +664,38 @@ export default function SwipeScreen() {
     ],
   );
 
+  // Stable handler for every card. submitInteraction's identity changes after
+  // each interaction (its deps include feedItems/interactionByItemId); passing
+  // it directly would change the onInteraction prop on every card and defeat
+  // ProductCard's memoization. The ref always points at the latest closure.
+  const submitInteractionRef = useRef(submitInteraction);
+  submitInteractionRef.current = submitInteraction;
+  const handleInteraction = useCallback(
+    (type: InteractionKind, opts?: { clear?: boolean }) => {
+      submitInteractionRef.current(type, opts);
+    },
+    [],
+  );
+
   const renderFeedItem = useCallback(
-    ({ item }: { item: QueueItemDto }) => (
-      <View style={{ height: feedHeight }} className="w-full py-2">
-        <ProductCard
-          item={item}
-          interactionInFlight={interactionInFlight}
-          activeInteractionType={
-            interactionInFlight && feedItems[currentCardIndex]?.id === item.id
-              ? activeInteractionType
-              : null
-          }
-          appliedInteractionType={interactionByItemId[item.id] ?? null}
-          onInteraction={submitInteraction}
-        />
-      </View>
-    ),
+    ({ item }: { item: QueueItemDto }) => {
+      // Only the visible card needs the in-flight flags; keeping them false on
+      // the rest leaves their props stable so memoized cards don't re-render.
+      const isCurrent = feedItems[currentCardIndex]?.id === item.id;
+      return (
+        <View style={{ height: feedHeight }} className="w-full py-2">
+          <ProductCard
+            item={item}
+            interactionInFlight={isCurrent ? interactionInFlight : false}
+            activeInteractionType={
+              isCurrent && interactionInFlight ? activeInteractionType : null
+            }
+            appliedInteractionType={interactionByItemId[item.id] ?? null}
+            onInteraction={handleInteraction}
+          />
+        </View>
+      );
+    },
     [
       activeInteractionType,
       currentCardIndex,
@@ -665,7 +703,7 @@ export default function SwipeScreen() {
       feedItems,
       interactionByItemId,
       interactionInFlight,
-      submitInteraction,
+      handleInteraction,
     ],
   );
 
@@ -791,6 +829,38 @@ export default function SwipeScreen() {
               }}
             />
           </View>
+          {feedItems.length === 0 && feedStatus === "ready" ? (
+            feedPreparing ? (
+              <View className="absolute inset-0 items-center justify-center bg-white">
+                <LoadingState
+                  title="Getting your feed ready…"
+                  subtitle={`Finding gifts for ${activeFeedName}.`}
+                />
+              </View>
+            ) : (
+              <View className="absolute inset-0 items-center justify-center bg-white px-8">
+                <Text
+                  className="text-center text-lg text-zinc-900"
+                  fontStyle="noto-serif-bold"
+                >
+                  No gifts to show yet
+                </Text>
+                <Text className="mt-2 text-center text-sm text-zinc-500">
+                  We couldn’t find gifts for {activeFeedName} right now. Pull to
+                  refresh, or tweak their interests and budget.
+                </Text>
+                <Pressable
+                  className="mt-4 h-11 flex-row items-center justify-center rounded-full bg-zinc-900 px-6"
+                  accessibilityRole="button"
+                  onPress={onRefresh}
+                >
+                  <Text className="font-sf-display-semibold text-white">
+                    Refresh
+                  </Text>
+                </Pressable>
+              </View>
+            )
+          ) : null}
           {feedStatus === "loading" ? (
             <View className="absolute inset-0 items-center justify-center bg-white">
               <LoadingState

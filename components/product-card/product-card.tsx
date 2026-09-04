@@ -17,7 +17,7 @@ import {
   StarHalf,
   ThumbsDown,
 } from "lucide-react-native";
-import { useState } from "react";
+import { memo, useState } from "react";
 import { Linking, Pressable, View } from "react-native";
 import * as Haptics from "expo-haptics";
 
@@ -267,4 +267,6 @@ const ProductCard = ({
   );
 };
 
-export default ProductCard;
+// Memoized so interacting with the current card doesn't re-render every other
+// card in the feed (which replayed each image's fade and read as a "reload").
+export default memo(ProductCard);
