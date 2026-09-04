@@ -1,241 +1,272 @@
 import { useClerk } from "@clerk/clerk-expo";
-import { router } from "expo-router";
-import Constants from "expo-constants";
-import { ChevronRight, CircleUserRound } from "lucide-react-native";
-import { useCallback, useMemo, useState } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  Image,
-  Pressable,
-  ScrollView,
-  Text,
-  View,
-} from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
+import Constants from "expo-constants";
+import { Image } from "expo-image";
+import { router } from "expo-router";
+import {
+  ChevronRight,
+  CircleUserRound,
+  LogOut,
+  Pencil,
+  Plus,
+  Users,
+} from "lucide-react-native";
+import { useCallback, useMemo, useState } from "react";
+import { ActivityIndicator, Alert, Pressable, ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { ThemedText } from "@/components/themed-text";
-import { loadProfilesForUser } from "@/lib/api/bootstrap";
+import { Text } from "@/components/ui/text";
 import { getApiClient } from "@/lib/api";
-import { useAppUser } from "@/lib/use-app-user";
+import { loadProfilesForUser } from "@/lib/api/bootstrap";
 import { getGiftGeniusApiBaseUrl } from "@/lib/api/config";
+import { clearStoredJwt } from "@/lib/state/auth-store";
 import {
   clearUserContext,
   getCurrentFeedId,
   getCurrentUserId,
 } from "@/lib/state/user-context";
-import { clearStoredJwt } from "@/lib/state/auth-store";
+import { useAppUser } from "@/lib/use-app-user";
 
-function Row({ title, subtitle, onPress }: { title: string; subtitle?: string; onPress: () => void }) {
+function SectionLabel({ children }: { children: string }) {
+  return (
+    <Text
+      className="mb-2 px-1 text-sm text-slate-600"
+      fontStyle="sf-display-medium"
+    >
+      {children}
+    </Text>
+  );
+}
+
+function Row({
+  icon,
+  title,
+  subtitle,
+  onPress,
+  destructive,
+  busy,
+  last,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  subtitle?: string;
+  onPress: () => void;
+  destructive?: boolean;
+  busy?: boolean;
+  last?: boolean;
+}) {
   return (
     <Pressable
       onPress={onPress}
-      className="flex-row items-center justify-between border-b border-zinc-100 py-3 active:bg-zinc-50"
+      disabled={busy}
+      accessibilityRole="button"
+      accessibilityLabel={title}
+      className={`flex-row items-center gap-3 px-4 py-3.5 active:bg-slate-50 ${
+        last ? "" : "border-b border-slate-100"
+      }`}
+      style={{ opacity: busy ? 0.6 : 1 }}
     >
-      <View className="mr-4 flex-1 shrink">
-        <Text className="text-base font-medium text-zinc-900">{title}</Text>
+      <View
+        className={`h-9 w-9 items-center justify-center rounded-full ${
+          destructive ? "bg-red-50" : "bg-slate-100"
+        }`}
+      >
+        {icon}
+      </View>
+      <View className="flex-1 pr-2">
+        <Text
+          className={`text-base ${destructive ? "text-red-700" : "text-slate-900"}`}
+          fontStyle="sf-display-semibold"
+        >
+          {title}
+        </Text>
         {subtitle ? (
-          <ThemedText className="mt-0.5 text-sm text-zinc-500">{subtitle}</ThemedText>
+          <Text
+            className="mt-0.5 text-[13px] text-slate-500"
+            fontStyle="sf-display-light"
+          >
+            {subtitle}
+          </Text>
         ) : null}
       </View>
-      <ChevronRight size={20} color="#a1a1aa" />
+      {busy ? (
+        <ActivityIndicator color={destructive ? "#b91c1c" : "#1f7a5c"} />
+      ) : (
+        <ChevronRight size={20} color="#cbd5e1" />
+      )}
     </Pressable>
   );
 }
 
-function SignOutRow() {
-  const { signOut } = useClerk();
-  const [signingOut, setSigningOut] = useState(false);
-
-  const handleSignOut = async () => {
-    setSigningOut(true);
-    try {
-      // Drop local app state first so AuthGate's redirect doesn't briefly
-      // remount the home screen with the previous user's id still cached.
-      clearUserContext();
-      await clearStoredJwt();
-      await signOut();
-      // AuthGate (root layout) routes us to /(auth)/sign-in when
-      // isSignedIn flips to false; no router call needed here.
-    } catch (err) {
-      // signOut failed (e.g. offline). Clerk has already cleared local
-      // state optimistically, so the gate will still bounce us — but
-      // surface the issue so it isn't silent.
-      const message = err instanceof Error ? err.message : "Sign out failed.";
-      Alert.alert("Sign out had an issue", message);
-    } finally {
-      setSigningOut(false);
-    }
-  };
-
-  const confirmSignOut = () => {
-    Alert.alert(
-      "Sign out?",
-      "You'll need to sign back in to access your feeds.",
-      [
-        { text: "Cancel", style: "cancel" },
-        { text: "Sign out", style: "destructive", onPress: handleSignOut },
-      ]
-    );
-  };
-
-  return (
-    <Pressable
-      onPress={confirmSignOut}
-      disabled={signingOut}
-      accessibilityRole="button"
-      accessibilityLabel="Sign out"
-      className="flex-row items-center justify-between py-4 active:bg-zinc-50"
-      style={{ opacity: signingOut ? 0.6 : 1 }}
-    >
-      <View className="mr-4 flex-1 shrink">
-        <Text className="text-base font-medium text-red-700">Sign out</Text>
-        <ThemedText className="mt-0.5 text-sm text-zinc-500">
-          Ends your session and clears tokens on this device.
-        </ThemedText>
-      </View>
-      {signingOut ? <ActivityIndicator color="#7f1d1d" /> : null}
-    </Pressable>
-  );
-}
-
-export default function ProfileScreen() {
+export default function SettingsScreen() {
   const { user } = useAppUser();
+  const { signOut } = useClerk();
   const api = useMemo(() => getApiClient(), []);
 
-  const [currentFeedSummary, setCurrentFeedSummary] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [activeFeedName, setActiveFeedName] = useState<string | null>(null);
+  const [hasActiveFeed, setHasActiveFeed] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
 
   const reload = useCallback(async () => {
     const uid = getCurrentUserId();
     const profileId = getCurrentFeedId();
     if (!uid) {
-      setCurrentFeedSummary(null);
-      setLoadError(null);
-      setLoading(false);
+      setActiveFeedName(null);
+      setHasActiveFeed(false);
       return;
     }
-
-    setLoading(true);
-    setLoadError(null);
     try {
       const profiles = await loadProfilesForUser(api, uid);
-      const current = profileId ? profiles.find((f) => f.id === profileId) : null;
-      setCurrentFeedSummary(
-        current
-          ? `${current.name}`
-          : profiles.length
-            ? `${profiles.length} profiles`
-            : "No profiles"
-      );
-    } catch (e) {
-      setLoadError(e instanceof Error ? e.message : "Could not load profile.");
-      setCurrentFeedSummary(null);
-    } finally {
-      setLoading(false);
+      const current = profileId
+        ? profiles.find((f) => f.id === profileId)
+        : null;
+      setActiveFeedName(current?.name ?? null);
+      setHasActiveFeed(Boolean(current));
+    } catch {
+      setActiveFeedName(null);
+      setHasActiveFeed(false);
     }
   }, [api]);
 
   useFocusEffect(
     useCallback(() => {
       reload();
-    }, [reload])
+    }, [reload]),
   );
 
-  const appVersion = Constants.expoConfig?.version ?? "development";
+  const handleSignOut = useCallback(async () => {
+    setSigningOut(true);
+    try {
+      // Clear local state first so the auth gate doesn't briefly remount the
+      // home screen with the previous user's id still cached.
+      clearUserContext();
+      await clearStoredJwt();
+      await signOut();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Sign out failed.";
+      Alert.alert("Sign out had an issue", message);
+    } finally {
+      setSigningOut(false);
+    }
+  }, [signOut]);
 
+  const confirmSignOut = useCallback(() => {
+    Alert.alert("Sign out?", "You’ll need to sign back in to access your feeds.", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Sign out", style: "destructive", onPress: handleSignOut },
+    ]);
+  }, [handleSignOut]);
+
+  const appVersion = Constants.expoConfig?.version ?? "development";
   const apiBaseHint = useMemo(() => {
     try {
-      const u = getGiftGeniusApiBaseUrl();
-      const host = new URL(u).hostname;
-      return host || u.slice(0, 40);
+      return new URL(getGiftGeniusApiBaseUrl()).hostname;
     } catch {
       return getGiftGeniusApiBaseUrl().slice(0, 48);
     }
   }, []);
 
+  const email = user?.primaryEmailAddress?.emailAddress ?? null;
+  const displayName = user?.fullName ?? email ?? "Signed in";
+
   return (
     <SafeAreaView className="flex-1 bg-white" edges={["top"]}>
-      <ScrollView className="flex-1 px-4" keyboardShouldPersistTaps="handled">
-        <View className="items-center pb-4 pt-2">
-          <View className="mb-3 h-20 w-20 items-center justify-center overflow-hidden rounded-full bg-zinc-100">
+      <View className="px-6 pb-4 pt-2">
+        <Text className="text-xl text-slate-700" fontStyle="noto-serif-bold">
+          Settings
+        </Text>
+        <Text className="px-1 pt-1" fontStyle="sf-display-light">
+          Manage your account and the feed you’re shopping.
+        </Text>
+      </View>
+
+      <ScrollView
+        className="flex-1"
+        contentContainerClassName="px-6 pb-10"
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Account card */}
+        <View className="mb-6 flex-row items-center gap-4 rounded-xl border border-slate-300 bg-white p-4">
+          <View className="h-14 w-14 items-center justify-center overflow-hidden rounded-full bg-slate-100">
             {user?.imageUrl ? (
               <Image
-                source={{ uri: user.imageUrl }}
-                className="h-20 w-20"
-                accessibilityIgnoresInvertColors
+                source={user.imageUrl}
+                style={{ width: 56, height: 56 }}
+                contentFit="cover"
               />
             ) : (
-              <CircleUserRound size={44} color="#52525b" strokeWidth={1.5} />
+              <CircleUserRound size={32} color="#64748b" strokeWidth={1.5} />
             )}
           </View>
-          <Text className="font-noto-serif-bold text-xl text-zinc-900">
-            {user?.fullName ?? user?.primaryEmailAddress?.emailAddress ?? "Signed in"}
-          </Text>
-          {user?.fullName && user?.primaryEmailAddress?.emailAddress ? (
-            <ThemedText className="mt-1 text-sm text-zinc-500">
-              {user.primaryEmailAddress.emailAddress}
-            </ThemedText>
-          ) : null}
-        </View>
-
-        {loading ? (
-          <View className="items-center justify-center py-10">
-            <ActivityIndicator />
-            <Text className="mt-3 text-zinc-500">Loading …</Text>
-          </View>
-        ) : null}
-
-        {loadError ? (
-          <View className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2">
-            <Text className="text-sm text-red-800">{loadError}</Text>
-            <Pressable onPress={reload} className="mt-2 self-start">
-              <Text className="text-sm font-medium text-red-900">Try again</Text>
-            </Pressable>
-          </View>
-        ) : null}
-
-        {!loading && getCurrentUserId() != null ? (
-          <View className="mb-6 rounded-xl border border-zinc-200 p-4">
-            <View className="flex-row items-center justify-between">
-              <ThemedText className="text-sm text-zinc-500">Active list</ThemedText>
-              <Text className="flex-1 pl-4 text-right text-base font-medium text-zinc-900" numberOfLines={1}>
-                {currentFeedSummary ?? "—"}
+          <View className="min-w-0 flex-1">
+            <Text
+              className="text-base text-slate-900"
+              fontStyle="sf-display-semibold"
+              numberOfLines={1}
+            >
+              {displayName}
+            </Text>
+            {email && user?.fullName ? (
+              <Text
+                className="mt-0.5 text-[13px] text-slate-500"
+                fontStyle="sf-display-light"
+                numberOfLines={1}
+              >
+                {email}
               </Text>
-            </View>
+            ) : null}
           </View>
-        ) : null}
-
-        <Text className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-400">
-          Shortcuts
-        </Text>
-        <View className="rounded-xl border border-zinc-200 px-4">
-          <Row
-            title="Saved gifts"
-            subtitle="Items you bookmarked on this feed"
-            onPress={() => router.push("/bookmarks")}
-          />
-          <Row
-            title="Current feed settings"
-            subtitle="Relationship, interests, budget"
-            onPress={() => router.push("/feed/settings")}
-          />
-          <Row title="Add a feed person" subtitle="Create another recipient feed" onPress={() => router.push("/feed/new")} />
         </View>
 
-        <Text className="mb-2 mt-8 text-xs font-medium uppercase tracking-wide text-zinc-400">
-          Account
-        </Text>
-        <View className="rounded-xl border border-zinc-200 px-4">
-          <SignOutRow />
+        <SectionLabel>Feeds</SectionLabel>
+        <View className="mb-6 overflow-hidden rounded-xl border border-slate-300 bg-white">
+          {hasActiveFeed ? (
+            <Row
+              icon={<Pencil size={18} color="#1f7a5c" strokeWidth={2} />}
+              title="Edit current feed"
+              subtitle={
+                activeFeedName
+                  ? `Shopping for ${activeFeedName}`
+                  : "Interests, budget, and occasion"
+              }
+              onPress={() => router.push("/feed/edit")}
+            />
+          ) : null}
+          <Row
+            icon={<Users size={18} color="#64748b" strokeWidth={2} />}
+            title="Manage feeds"
+            subtitle="Switch, edit, or delete your people"
+            onPress={() => router.push("/people")}
+          />
+          <Row
+            icon={<Plus size={18} color="#64748b" strokeWidth={2} />}
+            title="Add someone"
+            subtitle="Start a new gift feed"
+            onPress={() => router.push("/feed/start")}
+            last
+          />
         </View>
 
-        <View className="mt-10 mb-10 items-center gap-1">
-          <ThemedText className="text-center text-xs text-zinc-400">API · {apiBaseHint}</ThemedText>
-          <Text className="text-center text-xs text-zinc-400">GiftGenius app · v{appVersion}</Text>
-          <ThemedText className="mt-2 text-center text-xs text-zinc-400">Expo Router · React Native</ThemedText>
+        <SectionLabel>Account</SectionLabel>
+        <View className="overflow-hidden rounded-xl border border-slate-300 bg-white">
+          <Row
+            icon={<LogOut size={18} color="#b91c1c" strokeWidth={2} />}
+            title="Sign out"
+            subtitle="Ends your session on this device"
+            onPress={confirmSignOut}
+            destructive
+            busy={signingOut}
+            last
+          />
+        </View>
+
+        <View className="mt-10 items-center gap-1">
+          <Text className="text-xs text-slate-400" fontStyle="sf-display-light">
+            API · {apiBaseHint}
+          </Text>
+          <Text className="text-xs text-slate-400" fontStyle="sf-display-light">
+            GiftGenius · v{appVersion}
+          </Text>
         </View>
       </ScrollView>
     </SafeAreaView>

@@ -1,19 +1,34 @@
+import {
+  BottomSheetBackdrop,
+  type BottomSheetBackdropProps,
+  BottomSheetModal,
+  BottomSheetView,
+} from "@gorhom/bottom-sheet";
 import { useFocusEffect } from "@react-navigation/native";
 import { Image } from "expo-image";
-import { Check, ChevronDown, MoreVertical } from "lucide-react-native";
-import { useCallback, useMemo, useState } from "react";
+import { ChevronDown, MoreVertical, Trash2 } from "lucide-react-native";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
   Linking,
-  Modal,
   Pressable,
   RefreshControl,
-  Text,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 
+import {
+  SelectSheet,
+  type SelectSheetItem,
+  type SelectSheetRef,
+} from "@/components/ui/select-sheet";
+import { Separator } from "@/components/ui/separator";
+import { SheetBackground } from "@/components/ui/sheet-background";
+import { Text } from "@/components/ui/text";
 import { useToast } from "@/components/ui/toast";
 import { getApiClient } from "@/lib/api";
 import { loadProfilesForUser, startSessionForProfile } from "@/lib/api/bootstrap";
@@ -36,6 +51,14 @@ function formatSavedAt(savedAt: string | null): string | null {
   });
 }
 
+function itemSubtitle(item: BookmarkItemDto): string {
+  const savedLabel = formatSavedAt(item.savedAt);
+  const price = formatPrice(item);
+  return [price, savedLabel ? `Saved ${savedLabel}` : null]
+    .filter(Boolean)
+    .join(" • ");
+}
+
 function SavedItemRow({
   item,
   onOpenMenu,
@@ -43,50 +66,55 @@ function SavedItemRow({
   item: BookmarkItemDto;
   onOpenMenu: (item: BookmarkItemDto) => void;
 }) {
-  const savedLabel = formatSavedAt(item.savedAt);
-
   return (
-    <View className="flex-row gap-3 rounded-xl border border-zinc-200 bg-white p-3">
+    <View className="flex-row items-center justify-between py-4">
       <Pressable
-        className="flex-1 flex-row gap-3 active:opacity-80"
+        className="flex-1 flex-row items-center gap-3 pr-3 active:opacity-60"
         onPress={() => {
           if (item.buyUrl) Linking.openURL(item.buyUrl);
         }}
         disabled={!item.buyUrl}
       >
-        <View className="h-24 w-24 overflow-hidden rounded-lg bg-zinc-100">
+        <View className="h-16 w-16 overflow-hidden rounded-lg bg-slate-100">
           {item.imageUrl ? (
             <Image
               source={item.imageUrl}
-              style={{ width: 96, height: 96 }}
+              style={{ width: 64, height: 64 }}
               contentFit="contain"
               cachePolicy="memory-disk"
             />
           ) : (
             <View className="h-full w-full items-center justify-center">
-              <Text className="text-xs text-zinc-400">No image</Text>
+              <Text className="text-[10px] text-slate-400">No image</Text>
             </View>
           )}
         </View>
         <View className="min-w-0 flex-1">
-          <Text className="font-noto-serif-bold text-base text-zinc-900" numberOfLines={3}>
+          <Text
+            className="text-base text-slate-900"
+            fontStyle="sf-display-semibold"
+            numberOfLines={2}
+          >
             {item.title}
           </Text>
-          <Text className="mt-1 text-sm text-zinc-600">{formatPrice(item)}</Text>
-          {savedLabel ? (
-            <Text className="mt-1 text-xs text-zinc-400">Saved {savedLabel}</Text>
-          ) : null}
+          <Text
+            className="mt-0.5 text-[13px] text-slate-500"
+            fontStyle="sf-display-light"
+            numberOfLines={1}
+          >
+            {itemSubtitle(item)}
+          </Text>
         </View>
       </Pressable>
 
       <Pressable
         onPress={() => onOpenMenu(item)}
-        hitSlop={12}
+        hitSlop={10}
         accessibilityRole="button"
         accessibilityLabel="Bookmark actions"
-        className="h-9 w-9 items-center justify-center rounded-full active:bg-zinc-100"
+        className="h-9 w-9 items-center justify-center rounded-full active:bg-slate-100"
       >
-        <MoreVertical size={20} color="#3f3f46" strokeWidth={1.75} />
+        <MoreVertical size={18} color="#64748b" strokeWidth={2} />
       </Pressable>
     </View>
   );
@@ -98,8 +126,8 @@ export default function BookmarksScreen() {
 
   const [items, setItems] = useState<BookmarkItemDto[]>([]);
   const [feeds, setFeeds] = useState<FeedDto[]>([]);
-  const [selectedFeedId, setSelectedFeedId] = useState<string | null>(
-    () => getCurrentFeedId()
+  const [selectedFeedId, setSelectedFeedId] = useState<string | null>(() =>
+    getCurrentFeedId(),
   );
   const [feedName, setFeedName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -107,70 +135,89 @@ export default function BookmarksScreen() {
   const [switchingFeed, setSwitchingFeed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [menuItem, setMenuItem] = useState<BookmarkItemDto | null>(null);
-  const [feedPickerOpen, setFeedPickerOpen] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
 
-  const otherFeeds = useMemo(
-    () => feeds.filter((feed) => feed.id !== selectedFeedId),
-    [feeds, selectedFeedId]
+  const feedSheetRef = useRef<SelectSheetRef>(null);
+  const menuSheetRef = useRef<BottomSheetModal>(null);
+  const insets = useSafeAreaInsets();
+
+  const openMenu = useCallback((item: BookmarkItemDto) => {
+    setMenuItem(item);
+    menuSheetRef.current?.present();
+  }, []);
+
+  const renderBackdrop = useCallback(
+    (props: BottomSheetBackdropProps) => (
+      <BottomSheetBackdrop
+        {...props}
+        disappearsOnIndex={-1}
+        appearsOnIndex={0}
+        opacity={0.5}
+      />
+    ),
+    [],
   );
 
-  const loadSavedItems = useCallback(async (isRefresh = false, profileIdOverride?: string) => {
-    const profileId = profileIdOverride ?? getCurrentFeedId();
-    const userId = getCurrentUserId();
-    if (!profileId) {
-      setItems([]);
-      setFeeds([]);
-      setSelectedFeedId(null);
-      setFeedName(null);
-      setError("Set up a recipient first to start saving gifts.");
-      setLoading(false);
-      setRefreshing(false);
-      return;
-    }
+  const feedSelectItems: SelectSheetItem[] = useMemo(
+    () => feeds.map((feed) => ({ id: feed.id, title: feed.name })),
+    [feeds],
+  );
 
-    if (isRefresh) {
-      setRefreshing(true);
-    } else {
-      setLoading(true);
-    }
-    setError(null);
+  const loadSavedItems = useCallback(
+    async (isRefresh = false, profileIdOverride?: string) => {
+      const profileId = profileIdOverride ?? getCurrentFeedId();
+      const userId = getCurrentUserId();
+      if (!profileId) {
+        setItems([]);
+        setFeeds([]);
+        setSelectedFeedId(null);
+        setFeedName(null);
+        setError("Set up a feed first to start saving gifts.");
+        setLoading(false);
+        setRefreshing(false);
+        return;
+      }
 
-    try {
-      const [response, profiles] = await Promise.all([
-        api.getSavedItems(profileId),
-        userId ? loadProfilesForUser(api, userId) : Promise.resolve([]),
-      ]);
-      setItems(response.items.map(savedItemToBookmarkItem));
-      setFeeds(profiles);
-      setSelectedFeedId(profileId);
-      setFeedName(profiles.find((feed) => feed.id === profileId)?.name ?? null);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to load saved items.";
-      setError(message);
-      setItems([]);
-      setFeeds([]);
-      setFeedName(null);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [api]);
+      if (isRefresh) setRefreshing(true);
+      else setLoading(true);
+      setError(null);
+
+      try {
+        const [response, profiles] = await Promise.all([
+          api.getSavedItems(profileId),
+          userId ? loadProfilesForUser(api, userId) : Promise.resolve([]),
+        ]);
+        setItems(response.items.map(savedItemToBookmarkItem));
+        setFeeds(profiles);
+        setSelectedFeedId(profileId);
+        setFeedName(profiles.find((feed) => feed.id === profileId)?.name ?? null);
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Failed to load saved items.",
+        );
+        setItems([]);
+        setFeeds([]);
+        setFeedName(null);
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [api],
+  );
 
   useFocusEffect(
     useCallback(() => {
       loadSavedItems();
-    }, [loadSavedItems])
+    }, [loadSavedItems]),
   );
 
   const switchFeed = useCallback(
-    async (feed: FeedDto) => {
-      if (feed.id === selectedFeedId || switchingFeed) {
-        setFeedPickerOpen(false);
-        return;
-      }
+    async (feedId: string) => {
+      feedSheetRef.current?.dismiss();
+      const feed = feeds.find((f) => f.id === feedId);
+      if (!feed || feed.id === selectedFeedId || switchingFeed) return;
 
-      setFeedPickerOpen(false);
       setMenuItem(null);
       setSwitchingFeed(true);
       setLoading(true);
@@ -193,49 +240,18 @@ export default function BookmarksScreen() {
         setLoading(false);
       }
     },
-    [api, loadSavedItems, selectedFeedId, switchingFeed, toast]
-  );
-
-  const closeMenu = useCallback(() => {
-    if (actionBusy) return;
-    setMenuItem(null);
-  }, [actionBusy]);
-
-  const handleCopyToFeed = useCallback(
-    async (targetFeed: FeedDto) => {
-      if (!selectedFeedId || !menuItem || actionBusy) return;
-
-      setActionBusy(true);
-      try {
-        const result = await api.copySavedItem(selectedFeedId, menuItem.id, targetFeed.id);
-        setMenuItem(null);
-        toast.show({
-          message: result.already_saved
-            ? `Already on ${targetFeed.name}'s list`
-            : `Copied to ${targetFeed.name}'s list`,
-          variant: result.already_saved ? "info" : "success",
-        });
-      } catch (err) {
-        toast.show({
-          message: err instanceof Error ? err.message : "Couldn’t copy that gift.",
-          variant: "error",
-        });
-      } finally {
-        setActionBusy(false);
-      }
-    },
-    [actionBusy, api, menuItem, selectedFeedId, toast]
+    [api, feeds, loadSavedItems, selectedFeedId, switchingFeed, toast],
   );
 
   const handleRemove = useCallback(async () => {
     if (!selectedFeedId || !menuItem || actionBusy) return;
 
     const removingId = menuItem.id;
+    menuSheetRef.current?.dismiss();
     setActionBusy(true);
     try {
       await api.unsaveItem(selectedFeedId, removingId);
       setItems((prev) => prev.filter((item) => item.id !== removingId));
-      setMenuItem(null);
       toast.show({ message: "Removed from saved", variant: "info" });
     } catch (err) {
       toast.show({
@@ -247,221 +263,157 @@ export default function BookmarksScreen() {
     }
   }, [actionBusy, api, menuItem, selectedFeedId, toast]);
 
-  const headerTitle = feedName ? `${feedName}'s saved gifts` : "Bookmarked Items";
-  const headerSubtitle = feedName
-    ? `Gifts you bookmarked while browsing ${feedName}'s feed`
-    : "Saved products for the currently selected feed.";
-
   return (
     <SafeAreaView className="flex-1 bg-white" edges={["top"]}>
-      <View className="flex-1 px-4">
-        <View className="flex-row items-start justify-between gap-3 pb-3 pt-2">
-          <View className="min-w-0 flex-1">
-            <Text className="text-xl font-noto-serif-bold">{headerTitle}</Text>
-            <Text className="mt-1 text-sm text-zinc-600">{headerSubtitle}</Text>
-          </View>
+      <View className="px-4 pb-4 pt-6">
+        <View className="flex-row items-center justify-between">
+          <Text className="text-xl text-slate-700" fontStyle="noto-serif-bold">
+            Bookmarks
+          </Text>
           {feeds.length > 0 ? (
             <Pressable
-              onPress={() => setFeedPickerOpen(true)}
+              onPress={() => feedSheetRef.current?.present()}
               accessibilityRole="button"
               accessibilityLabel="Switch feed"
-              hitSlop={8}
-              className="mt-0.5 max-w-[42%] flex-row items-center gap-1 rounded-full border border-zinc-200 bg-zinc-50 px-3 py-2 active:bg-zinc-100"
+              className="max-w-[55%] flex-row items-center gap-1 rounded-full border border-slate-300 bg-white py-1.5 pl-3.5 pr-2.5 active:opacity-70"
             >
               <Text
-                className="shrink font-sf-display-semibold text-sm text-zinc-900"
+                className="shrink text-[13px] text-slate-900"
+                fontStyle="sf-display-medium"
                 numberOfLines={1}
               >
-                {feedName ?? "Switch"}
+                {feedName ?? "Select feed"}
               </Text>
-              <ChevronDown size={16} color="#3f3f46" strokeWidth={2} />
+              <ChevronDown size={16} color="#94a3b8" />
             </Pressable>
           ) : null}
         </View>
+        <Text className="pt-1" fontStyle="sf-display-light">
+          Gifts you’ve saved while browsing.
+        </Text>
+      </View>
 
-        {loading ? (
-          <View className="flex-1 items-center justify-center">
-            <ActivityIndicator size="large" />
-            <Text className="mt-3 text-zinc-500">
-              {switchingFeed ? "Switching feeds…" : "Loading saved items…"}
-            </Text>
-          </View>
-        ) : null}
-
-        {!loading && error ? (
+      {loading ? (
+        <View className="flex-1 items-center justify-center">
+          <ActivityIndicator color="#1f7a5c" />
+          <Text className="mt-3 text-slate-500" fontStyle="sf-display-light">
+            {switchingFeed ? "Switching feeds…" : "Loading saved items…"}
+          </Text>
+        </View>
+      ) : error ? (
+        <View className="px-4">
           <View className="rounded-xl border border-red-200 bg-red-50 p-4">
-            <Text className="text-sm text-red-800">{error}</Text>
-            <Pressable onPress={() => loadSavedItems()} className="mt-3 self-start">
-              <Text className="text-sm font-medium text-red-900">Try again</Text>
+            <Text className="text-sm text-red-700" fontStyle="sf-display-medium">
+              {error}
+            </Text>
+            <Pressable
+              onPress={() => loadSavedItems()}
+              className="mt-3 self-start"
+            >
+              <Text
+                className="text-sm text-red-800 underline"
+                fontStyle="sf-display-medium"
+              >
+                Try again
+              </Text>
             </Pressable>
           </View>
-        ) : null}
-
-        {!loading && !error && items.length === 0 ? (
-          <View className="rounded-xl border border-zinc-200 bg-zinc-50 p-4">
-            <Text className="text-sm font-medium text-zinc-900">Nothing saved yet</Text>
-            <Text className="mt-2 text-sm text-zinc-600">
+        </View>
+      ) : items.length === 0 ? (
+        <View className="px-4">
+          <View className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+            <Text
+              className="text-base text-slate-900"
+              fontStyle="sf-display-semibold"
+            >
+              Nothing saved yet
+            </Text>
+            <Text
+              className="mt-1.5 text-sm text-slate-500"
+              fontStyle="sf-display-light"
+            >
               {feedName
-                ? `Tap the bookmark icon on a gift in ${feedName}'s feed to save it here.`
+                ? `Tap the bookmark icon on a gift in ${feedName}’s feed to save it here.`
                 : "Tap the bookmark icon on a gift card in your feed to save it here."}
             </Text>
           </View>
-        ) : null}
+        </View>
+      ) : (
+        <FlatList
+          data={items}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => (
+            <SavedItemRow item={item} onOpenMenu={openMenu} />
+          )}
+          ItemSeparatorComponent={Separator}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => loadSavedItems(true)}
+              tintColor="#1f7a5c"
+            />
+          }
+        />
+      )}
 
-        {!loading && !error && items.length > 0 ? (
-          <FlatList
-            data={items}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => (
-              <SavedItemRow item={item} onOpenMenu={setMenuItem} />
-            )}
-            contentContainerStyle={{ gap: 12, paddingBottom: 24 }}
-            refreshControl={
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={() => loadSavedItems(true)}
-              />
-            }
-          />
-        ) : null}
-      </View>
+      <SelectSheet
+        ref={feedSheetRef}
+        heading="Whose saved gifts?"
+        subheading="Switch feeds to see another person’s bookmarked items."
+        data={feedSelectItems}
+        selectedId={selectedFeedId}
+        onSelect={(item) => switchFeed(item.id)}
+      />
 
-      <Modal
-        visible={feedPickerOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setFeedPickerOpen(false)}
+      <BottomSheetModal
+        ref={menuSheetRef}
+        enableDynamicSizing
+        enablePanDownToClose
+        topInset={insets.top}
+        backdropComponent={renderBackdrop}
+        backgroundComponent={SheetBackground}
+        handleIndicatorStyle={{ backgroundColor: "#ccc" }}
       >
-        <Pressable
-          className="flex-1 justify-end bg-black/40"
-          onPress={() => setFeedPickerOpen(false)}
+        <BottomSheetView
+          style={{
+            paddingHorizontal: 16,
+            paddingTop: 16,
+            paddingBottom: 16 + insets.bottom,
+          }}
         >
-          <Pressable
-            className="rounded-t-2xl bg-white px-4 pb-8 pt-3"
-            onPress={(e) => e.stopPropagation()}
-          >
-            <View className="mb-3 items-center">
-              <View className="h-1 w-10 rounded-full bg-zinc-300" />
-            </View>
-            <Text className="font-noto-serif-bold text-lg text-zinc-900">
-              Whose saved gifts?
-            </Text>
-            <Text className="mt-1 mb-4 text-sm text-zinc-500">
-              Switch feeds to see another person’s bookmarked items.
-            </Text>
-
-            <View className="gap-2.5">
-              {feeds.map((feed) => {
-                const isActive = feed.id === selectedFeedId;
-                return (
-                  <Pressable
-                    key={feed.id}
-                    disabled={switchingFeed}
-                    onPress={() => switchFeed(feed)}
-                    className="flex-row items-center justify-between rounded-2xl border px-4 py-3.5"
-                    style={{
-                      borderColor: isActive ? "#1f7a5c" : "#e4e4e7",
-                      backgroundColor: isActive ? "rgba(31,122,92,0.06)" : "white",
-                    }}
-                  >
-                    <View className="flex-1 pr-3">
-                      <Text className="text-base font-sf-display-semibold text-zinc-900">
-                        {feed.name}
-                      </Text>
-                      <Text className="mt-0.5 text-[13px] text-zinc-500">
-                        {isActive ? "Currently viewing" : "View saved gifts"}
-                      </Text>
-                    </View>
-                    {isActive ? (
-                      <View
-                        className="h-6 w-6 items-center justify-center rounded-full"
-                        style={{ backgroundColor: "#1f7a5c" }}
-                      >
-                        <Check size={14} color="white" strokeWidth={3} />
-                      </View>
-                    ) : null}
-                  </Pressable>
-                );
-              })}
-            </View>
-
-            <Pressable
-              onPress={() => setFeedPickerOpen(false)}
-              className="mt-3 items-center py-3"
+          <View>
+            <Text
+              className="text-left text-xl text-slate-700"
+              fontStyle="noto-serif-bold"
+              numberOfLines={2}
             >
-              <Text className="text-sm font-medium text-zinc-600">Cancel</Text>
-            </Pressable>
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      <Modal
-        visible={menuItem != null}
-        transparent
-        animationType="fade"
-        onRequestClose={closeMenu}
-      >
-        <Pressable
-          className="flex-1 justify-end bg-black/40"
-          onPress={closeMenu}
-        >
-          <Pressable
-            className="rounded-t-2xl bg-white px-4 pb-8 pt-3"
-            onPress={(e) => e.stopPropagation()}
-          >
-            <View className="mb-3 items-center">
-              <View className="h-1 w-10 rounded-full bg-zinc-300" />
-            </View>
-            <Text className="mb-1 font-noto-serif-bold text-base text-zinc-900" numberOfLines={2}>
               {menuItem?.title ?? "Saved gift"}
             </Text>
-            <Text className="mb-4 text-sm text-zinc-500">
-              Copy to another feed or remove from this list.
+            <Text
+              className="px-1 pb-6 pt-1 text-left"
+              fontStyle="sf-display-light"
+            >
+              Remove this gift from your saved list.
             </Text>
+          </View>
 
-            {otherFeeds.length === 0 ? (
-              <Text className="mb-3 text-sm text-zinc-500">
-                Create another recipient feed to copy this gift there.
-              </Text>
-            ) : (
-              otherFeeds.map((feed) => (
-                <Pressable
-                  key={feed.id}
-                  disabled={actionBusy}
-                  onPress={() => handleCopyToFeed(feed)}
-                  className="mb-2 rounded-xl border border-zinc-200 px-4 py-3 active:bg-zinc-50"
-                >
-                  <Text className="text-sm font-medium text-zinc-900">
-                    Copy to {feed.name}
-                  </Text>
-                </Pressable>
-              ))
-            )}
-
-            <Pressable
-              disabled={actionBusy}
-              onPress={handleRemove}
-              className="mt-1 rounded-xl border border-red-200 bg-red-50 px-4 py-3 active:bg-red-100"
+          <Pressable
+            onPress={handleRemove}
+            className="flex-row items-center gap-3 rounded-2xl px-4 py-3.5"
+            style={{ backgroundColor: "rgba(255,255,255,0.5)" }}
+          >
+            <Trash2 size={20} color="#dc2626" strokeWidth={2} />
+            <Text
+              className="text-base font-sf-display-semibold"
+              style={{ color: "#dc2626" }}
             >
-              <Text className="text-sm font-medium text-red-800">Remove from saved</Text>
-            </Pressable>
-
-            <Pressable
-              disabled={actionBusy}
-              onPress={closeMenu}
-              className="mt-2 items-center py-3"
-            >
-              <Text className="text-sm font-medium text-zinc-600">Cancel</Text>
-            </Pressable>
-
-            {actionBusy ? (
-              <View className="absolute inset-0 items-center justify-center rounded-t-2xl bg-white/70">
-                <ActivityIndicator />
-              </View>
-            ) : null}
+              Remove item
+            </Text>
           </Pressable>
-        </Pressable>
-      </Modal>
+        </BottomSheetView>
+      </BottomSheetModal>
     </SafeAreaView>
   );
 }

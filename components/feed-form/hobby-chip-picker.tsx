@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -21,8 +21,11 @@ type HobbyChipPickerProps = {
   confirmOnRemove?: boolean;
 };
 
-/** Searchable multi-select of hobbies rendered as toggleable chips. */
-export function HobbyChipPicker({
+/** Searchable multi-select of hobbies rendered as toggleable chips.
+ *
+ * Memoized so an unrelated parent re-render (e.g. typing in a sibling name
+ * field) doesn't re-render the full ~200-chip catalog on every keystroke. */
+export const HobbyChipPicker = memo(function HobbyChipPicker({
   selectedIds,
   onChange,
   confirmOnRemove = false,
@@ -41,7 +44,7 @@ export function HobbyChipPicker({
       } catch (e) {
         if (active) {
           setLoadError(
-            e instanceof Error ? e.message : "Could not load interests."
+            e instanceof Error ? e.message : "Could not load interests.",
           );
         }
       }
@@ -61,12 +64,16 @@ export function HobbyChipPicker({
       .filter((h): h is HobbyDto => h != null);
   }, [catalog, selectedIds]);
 
-  const filtered = useMemo(() => {
+  // Matches for the dropdown — already-selected interests live inside the combo
+  // box, so exclude them here to avoid showing each one twice.
+  const dropdownHobbies = useMemo(() => {
     if (!catalog) return [];
     const q = query.trim().toLowerCase();
-    if (!q) return catalog;
-    return catalog.filter((h) => h.name.toLowerCase().includes(q));
-  }, [catalog, query]);
+    return catalog.filter(
+      (h) =>
+        !selected.has(h.id) && (!q || h.name.toLowerCase().includes(q)),
+    );
+  }, [catalog, query, selected]);
 
   function applyRemove(id: string) {
     onChange(selectedIds.filter((x) => x !== id));
@@ -88,16 +95,15 @@ export function HobbyChipPicker({
           style: "destructive",
           onPress: () => applyRemove(hobby.id),
         },
-      ]
+      ],
     );
   }
 
-  function toggle(hobby: HobbyDto) {
-    if (selected.has(hobby.id)) {
-      confirmAndRemove(hobby);
-    } else {
-      onChange([...selectedIds, hobby.id]);
-    }
+  function addHobby(hobby: HobbyDto) {
+    if (selected.has(hobby.id)) return;
+    onChange([...selectedIds, hobby.id]);
+    // Clear the query so the user can immediately search for the next one.
+    setQuery("");
   }
 
   if (loadError) {
@@ -115,20 +121,19 @@ export function HobbyChipPicker({
 
   return (
     <View className="gap-2">
-      <TextInput
-        value={query}
-        onChangeText={setQuery}
-        placeholder="Search interests…"
-        placeholderTextColor="#a1a1aa"
-        accessibilityLabel="Search interests"
-        className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 font-sf-display-regular text-[15px] text-zinc-900"
-      />
-      {selectedHobbies.length > 0 ? (
-        <View className="flex-row flex-wrap gap-2">
+      {/* Combo box: selected interests render as chips alongside the search
+          field, so typing and the current selection share one control. Extra
+          bottom padding reserves room for the overlaid "N selected" label. */}
+      <View
+        className={`relative min-h-14 justify-center rounded-xl border border-slate-300 bg-white px-4 ${
+          selectedIds.length > 0 ? "py-2.5 pb-6" : ""
+        }`}
+      >
+        <View className="flex-row flex-wrap items-center gap-2">
           {selectedHobbies.map((hobby) => (
             <View
               key={hobby.id}
-              className="flex-row items-center gap-1 rounded-full border border-[#1f7a5c] bg-[#1f7a5c] py-1.5 pl-3.5 pr-1.5"
+              className="flex-row items-center gap-1 rounded-full border-2 border-[#1f7a5c] bg-primary/70 py-1.5 pl-3.5 pr-1.5"
             >
               <Text className="font-sf-display-medium text-sm text-white">
                 {hobby.name}
@@ -144,49 +149,60 @@ export function HobbyChipPicker({
               </Pressable>
             </View>
           ))}
+          <TextInput
+            value={query}
+            onChangeText={setQuery}
+            placeholder={selectedHobbies.length > 0 ? "Add more…" : undefined}
+            placeholderTextColor="#94a3b8"
+            accessibilityLabel="Search interests"
+            className="min-w-[120px] flex-1 p-0 font-sf-rounded-light text-[16px] text-slate-900"
+          />
         </View>
-      ) : null}
+        {/* Centered overlay placeholder for the empty state, matching the name
+            field (the native placeholder's font-box metrics sit off-center). */}
+        {selectedHobbies.length === 0 && query.length === 0 ? (
+          <View
+            pointerEvents="none"
+            className="absolute inset-y-0 left-4 justify-center"
+          >
+            <Text className="font-sf-rounded-light text-[16px] text-slate-400">
+              Search interests…
+            </Text>
+          </View>
+        ) : null}
+        {selectedIds.length > 0 ? (
+          <Text className="absolute bottom-1.5 right-3 text-[11px] text-slate-400">
+            {selectedIds.length} selected
+          </Text>
+        ) : null}
+      </View>
+
       <ScrollView
-        className="max-h-56 rounded-2xl border border-zinc-200 bg-zinc-50"
+        className="max-h-56 rounded-xl border border-slate-300 bg-slate-50"
         contentContainerClassName="flex-row flex-wrap gap-2 p-3"
         keyboardShouldPersistTaps="handled"
         nestedScrollEnabled
       >
-        {filtered.length === 0 ? (
-          <Text className="p-1 text-sm text-zinc-500">No matches.</Text>
+        {dropdownHobbies.length === 0 ? (
+          <Text className="p-1 text-sm text-slate-500">
+            {query.trim() ? "No matches." : "All interests added."}
+          </Text>
         ) : (
-          filtered.map((hobby) => {
-            const isSelected = selected.has(hobby.id);
-            return (
-              <Pressable
-                key={hobby.id}
-                onPress={() => toggle(hobby)}
-                accessibilityRole="button"
-                accessibilityState={{ selected: isSelected }}
-                accessibilityLabel={hobby.name}
-                className={`rounded-full border px-3.5 py-1.5 ${
-                  isSelected
-                    ? "border-[#1f7a5c] bg-[#1f7a5c]"
-                    : "border-zinc-300 bg-white"
-                }`}
-              >
-                <Text
-                  className={`font-sf-display-medium text-sm ${
-                    isSelected ? "text-white" : "text-zinc-700"
-                  }`}
-                >
-                  {hobby.name}
-                </Text>
-              </Pressable>
-            );
-          })
+          dropdownHobbies.map((hobby) => (
+            <Pressable
+              key={hobby.id}
+              onPress={() => addHobby(hobby)}
+              accessibilityRole="button"
+              accessibilityLabel={hobby.name}
+              className="rounded-full border border-slate-300 bg-white px-3.5 py-1.5"
+            >
+              <Text className="font-sf-display-medium text-sm text-slate-700">
+                {hobby.name}
+              </Text>
+            </Pressable>
+          ))
         )}
       </ScrollView>
-      <Text className="text-[13px] text-zinc-500">
-        {selectedIds.length > 0
-          ? `${selectedIds.length} selected`
-          : "Tap to select a few interests."}
-      </Text>
     </View>
   );
-}
+});

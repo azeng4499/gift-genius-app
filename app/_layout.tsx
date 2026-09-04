@@ -64,6 +64,7 @@ function AuthGate() {
       <Stack.Screen name="feed/new" options={{ title: "Add Feed Person" }} />
       <Stack.Screen name="feed/settings" options={{ title: "Feed settings" }} />
       <Stack.Screen name="feed/start" options={{ title: "Start a feed" }} />
+      <Stack.Screen name="feed/edit" options={{ title: "Edit feed" }} />
     </Stack>
   );
 }

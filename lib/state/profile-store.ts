@@ -47,3 +47,15 @@ export async function addStoredProfileId(
     JSON.stringify([...existing, profileId])
   );
 }
+
+export async function removeStoredProfileId(
+  backendUserId: string,
+  profileId: string
+): Promise<void> {
+  const existing = await getStoredProfileIds(backendUserId);
+  if (!existing.includes(profileId)) return;
+  await SecureStore.setItemAsync(
+    profileIdsKey(backendUserId),
+    JSON.stringify(existing.filter((id) => id !== profileId))
+  );
+}

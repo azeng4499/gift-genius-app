@@ -34,7 +34,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="people"
         options={{
-          title: "People",
+          title: "Feeds",
           tabBarIcon: ({ color, focused }) => (
             <Users
               size={24}
@@ -62,7 +62,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="profile"
         options={{
-          title: "Profile",
+          title: "Settings",
           tabBarIcon: ({ color, focused }) => (
             <CircleUserRound
               size={24}

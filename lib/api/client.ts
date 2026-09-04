@@ -384,6 +384,16 @@ export function createGiftGeniusApiClient(config: ApiClientConfig) {
       });
     },
 
+    /** Permanently delete a profile and everything tied to it. */
+    async deleteProfile(
+      profileId: string
+    ): Promise<{ ok: true; deleted_id: string }> {
+      return request<{ ok: true; deleted_id: string }>(
+        `/profiles/${encodeURIComponent(profileId)}`,
+        { method: "DELETE", requiresAuth: true }
+      );
+    },
+
     /** Remove one interest from a profile (also penalizes its weights). */
     async removeInterest(
       profileId: string,

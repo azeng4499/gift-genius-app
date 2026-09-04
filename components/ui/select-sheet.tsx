@@ -100,7 +100,6 @@ export const SelectSheet = forwardRef<SelectSheetRef, SelectSheetProps>(
               className="h-14 flex-row items-center justify-center gap-2 rounded-full bg-zinc-900"
               onPress={onCtaPress}
             >
-              {ctaIcon}
               {typeof ctaLabel === "string" ? (
                 <Text className="text-center font-sf-display-semibold text-[16px] text-white">
                   {ctaLabel}
@@ -108,6 +107,7 @@ export const SelectSheet = forwardRef<SelectSheetRef, SelectSheetProps>(
               ) : (
                 ctaLabel
               )}
+              {ctaIcon}
             </Pressable>
           </View>
         </BottomSheetFooter>
