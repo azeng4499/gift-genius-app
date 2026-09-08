@@ -4,10 +4,10 @@ import {
   BottomSheetModal,
   BottomSheetView,
 } from "@gorhom/bottom-sheet";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect } from "expo-router/react-navigation";
 import { Image } from "expo-image";
 import { ChevronDown, MoreVertical, Trash2 } from "lucide-react-native";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -148,7 +148,10 @@ export default function BookmarksScreen() {
   const menuSheetRef = useRef<BottomSheetModal>(null);
   const hasItemsRef = useRef(false);
   const insets = useSafeAreaInsets();
-  hasItemsRef.current = items.length > 0;
+
+  useEffect(() => {
+    hasItemsRef.current = items.length > 0;
+  }, [items.length]);
 
   const openMenu = useCallback((item: BookmarkItemDto) => {
     setMenuItem(item);

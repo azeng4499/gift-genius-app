@@ -3,7 +3,7 @@ import { tokenCache } from "@clerk/clerk-expo/token-cache";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { PortalHost } from "@rn-primitives/portal";
 import { useFonts } from "expo-font";
-import { ThemeProvider } from "@react-navigation/native";
+import { ThemeProvider } from "expo-router/react-navigation";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { useColorScheme } from "nativewind";
 import { useEffect } from "react";

@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect } from "expo-router/react-navigation";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -18,6 +18,7 @@ import { ChevronDown, Plus, Ellipsis } from "lucide-react-native";
 import ProductCard from "@/components/product-card/product-card";
 import {
   SettingUpScreen,
+  SwitchingFeedScreen,
   LoadingState,
 } from "@/components/feed/setting-up-screen";
 import {
@@ -45,7 +46,10 @@ import {
   getCurrentFeedId,
   getCurrentSessionId,
   getCurrentUserId,
+  setCurrentProfile,
+  setCurrentSession,
 } from "@/lib/state/user-context";
+import { peekQueuedFeedSwitch, takeQueuedFeedSwitch } from "@/lib/state/pending-feed-switch";
 
 // Re-tapping an already-applied action undoes it. Message shown on undo.
 const UNDO_MESSAGE: Record<AppliedInteraction, string> = {
@@ -121,6 +125,30 @@ export default function SwipeScreen() {
   const interactedItemIdsRef = useRef<Set<string>>(new Set());
   const bootstrappedClerkUserIdRef = useRef<string | null>(null);
   const bottomSheetRef = useRef<SelectSheetRef>(null);
+  // Which profile the on-screen cards belong to. People/bookmarks can change
+  // the active session while this tab is unfocused; we reload when they differ.
+  const loadedProfileIdRef = useRef<string | null>(null);
+  const feedEpochRef = useRef(0);
+  const switchGenerationRef = useRef(0);
+  const switchSourceRef = useRef<"people" | "home" | "focus">("home");
+  const previousFeedRef = useRef<{
+    profileId: string | null;
+    sessionId: string | null;
+    items: QueueItemDto[];
+    index: number;
+    name: string;
+    interactionByItemId: Record<string, AppliedInteraction>;
+    loadedProfileId: string | null;
+  } | null>(null);
+  const feedViewRef = useRef({
+    items: [] as QueueItemDto[],
+    index: 0,
+    name: "Your gifts",
+    interactionByItemId: {} as Record<string, AppliedInteraction>,
+  });
+  const [feedSwitching, setFeedSwitching] = useState(false);
+  const [switchingFeedName, setSwitchingFeedName] = useState("");
+  const feedSwitchingRef = useRef(false);
   const api = useMemo(() => getApiClient(), []);
   const toast = useToast();
   const navigation = useNavigation();
@@ -180,22 +208,27 @@ export default function SwipeScreen() {
       throw new Error("Your feed isn’t ready yet. Pull down to refresh.");
     }
 
+    const epoch = feedEpochRef.current;
     setFeedLoading(true);
     try {
       const batch = await api.getFeedBatch(sessionId, 10);
+      if (epoch !== feedEpochRef.current) {
+        return { count: 0, preparing: false };
+      }
       const mapped = batch.items.map(feedItemToQueueItem);
       logFeedEvent("load_feed_batch", {
         sessionId,
         count: mapped.length,
       });
       setFeedItems((prev) => {
+        if (epoch !== feedEpochRef.current) return prev;
         const seen = new Set(prev.map((item) => item.id));
         const fresh = mapped.filter((item) => !seen.has(item.id));
         return fresh.length > 0 ? [...prev, ...fresh] : prev;
       });
       return { count: mapped.length, preparing: batch.preparing ?? false };
     } finally {
-      setFeedLoading(false);
+      if (epoch === feedEpochRef.current) setFeedLoading(false);
     }
   }, [api, logFeedEvent]);
 
@@ -262,6 +295,7 @@ export default function SwipeScreen() {
   useEffect(() => stopFeedPolling, [stopFeedPolling]);
 
   const resetAndLoadFeedCards = useCallback(async (): Promise<void> => {
+    const epoch = feedEpochRef.current;
     stopFeedPolling();
     setFeedItems([]);
     setCurrentCardIndex(0);
@@ -270,6 +304,7 @@ export default function SwipeScreen() {
     setFeedPreparing(true);
     try {
       const { count, preparing } = await loadMoreFeedItems();
+      if (epoch !== feedEpochRef.current) return;
       if (count > 0) {
         setFeedPreparing(false);
       } else if (preparing) {
@@ -280,29 +315,108 @@ export default function SwipeScreen() {
         // Genuinely empty feed.
         setFeedPreparing(false);
       }
+      loadedProfileIdRef.current = getCurrentFeedId();
     } catch (error) {
+      if (epoch !== feedEpochRef.current) return;
       setFeedPreparing(false);
-      if (isFeedQueueEmptyError(error)) return;
+      if (isFeedQueueEmptyError(error)) {
+        loadedProfileIdRef.current = getCurrentFeedId();
+        return;
+      }
       throw error;
     }
   }, [loadMoreFeedItems, startFeedPolling, stopFeedPolling]);
 
+  const restorePreviousFeed = useCallback(() => {
+    const snapshot = previousFeedRef.current;
+    if (!snapshot) return;
+    setCurrentProfile(snapshot.profileId);
+    setCurrentSession(snapshot.sessionId);
+    setFeedItems(snapshot.items);
+    setCurrentCardIndex(snapshot.index);
+    setActiveFeedName(snapshot.name);
+    setInteractionByItemId(snapshot.interactionByItemId);
+    loadedProfileIdRef.current = snapshot.loadedProfileId;
+    setFeedPreparing(snapshot.items.length === 0);
+    setFeedStatus("ready");
+    setFeedError(null);
+  }, []);
+
+  const cancelFeedSwitch = useCallback(() => {
+    switchGenerationRef.current += 1;
+    feedEpochRef.current += 1;
+    stopFeedPolling();
+    restorePreviousFeed();
+    feedSwitchingRef.current = false;
+    setFeedSwitching(false);
+    if (switchSourceRef.current === "people") {
+      router.replace("/people");
+    }
+  }, [restorePreviousFeed, stopFeedPolling]);
+
   const switchToFeed = useCallback(
-    async (feed: FeedDto) => {
+    async (
+      feed: FeedDto,
+      source: "people" | "home" | "focus" = "home",
+      options?: { notify?: boolean },
+    ) => {
+      if (feed.id === loadedProfileIdRef.current && !feedSwitchingRef.current) {
+        bottomSheetRef.current?.dismiss();
+        return;
+      }
+
+      const generation = ++switchGenerationRef.current;
+      feedEpochRef.current += 1;
+      switchSourceRef.current = source;
+      previousFeedRef.current = {
+        profileId: getCurrentFeedId(),
+        sessionId: getCurrentSessionId(),
+        items: feedViewRef.current.items,
+        index: feedViewRef.current.index,
+        name: feedViewRef.current.name,
+        interactionByItemId: feedViewRef.current.interactionByItemId,
+        loadedProfileId: loadedProfileIdRef.current,
+      };
+
+      feedSwitchingRef.current = true;
+      setSwitchingFeedName(feed.name);
+      setActiveFeedName(feed.name);
+      setFeedSwitching(true);
+      bottomSheetRef.current?.dismiss();
+
       try {
-        await startSessionForProfile(api, feed.id);
-        setActiveFeedName(feed.name);
+        const session = await api.createSession(feed.id);
+        if (generation !== switchGenerationRef.current) return;
+        setCurrentSession(session.id);
+        setCurrentProfile(feed.id);
         logFeedEvent("feed_switch", {
           nextProfileId: feed.id,
           nextProfileName: feed.name,
         });
         await resetAndLoadFeedCards();
-        bottomSheetRef.current?.dismiss();
+        if (generation !== switchGenerationRef.current) {
+          restorePreviousFeed();
+          return;
+        }
+        loadedProfileIdRef.current = feed.id;
+        if (options?.notify !== false) {
+          toast.show({
+            message: `Now shopping for ${feed.name}`,
+            variant: "success",
+          });
+        }
       } catch (error) {
+        if (generation !== switchGenerationRef.current) return;
+        restorePreviousFeed();
         toast.show({ message: friendlyErrorMessage(error), variant: "error" });
+      } finally {
+        if (generation === switchGenerationRef.current) {
+          feedSwitchingRef.current = false;
+          setFeedSwitching(false);
+        }
       }
     },
-    [api, logFeedEvent, resetAndLoadFeedCards, toast],
+    [api, logFeedEvent, resetAndLoadFeedCards, restorePreviousFeed, toast],
   );
 
   // Feed rows for the switcher sheet: title is the feed name, subtitle a
@@ -332,6 +446,15 @@ export default function SwipeScreen() {
   );
 
   useEffect(() => {
+    feedViewRef.current = {
+      items: feedItems,
+      index: currentCardIndex,
+      name: activeFeedName,
+      interactionByItemId,
+    };
+  }, [activeFeedName, currentCardIndex, feedItems, interactionByItemId]);
+
+  useEffect(() => {
     const selectedProfileId = params.selectedFeedId?.trim();
     if (!params.refreshKey || !selectedProfileId) {
       return;
@@ -348,7 +471,7 @@ export default function SwipeScreen() {
           (feed) => feed.id === selectedProfileId,
         );
         if (selectedProfile) {
-          await switchToFeed(selectedProfile);
+          await switchToFeed(selectedProfile, "home", { notify: false });
         }
       } catch (error) {
         toast.show({ message: friendlyErrorMessage(error), variant: "error" });
@@ -742,18 +865,38 @@ export default function SwipeScreen() {
   useFocusEffect(
     useCallback(() => {
       const userId = getCurrentUserId();
-      const profileId = getCurrentFeedId();
-      if (!userId || !profileId) return;
+      if (!userId) return;
+      if (feedSwitchingRef.current) return;
 
       let cancelled = false;
       (async () => {
         try {
+          const queued = peekQueuedFeedSwitch();
           const profiles = await loadProfilesForUser(api, userId);
-          if (cancelled) return;
+          if (cancelled || feedSwitchingRef.current) return;
           setAvailableFeeds(profiles);
+
+          if (queued) {
+            takeQueuedFeedSwitch();
+            const selected = profiles.find((feed) => feed.id === queued.feedId);
+            if (selected) {
+              await switchToFeed(selected, queued.source);
+            }
+            return;
+          }
+
+          const profileId = getCurrentFeedId();
+          if (!profileId) return;
           const current = profiles.find((f) => f.id === profileId);
           if (current) {
             setActiveFeedName(current.name);
+          }
+          if (
+            current &&
+            loadedProfileIdRef.current &&
+            loadedProfileIdRef.current !== profileId
+          ) {
+            await switchToFeed(current, "focus");
           }
         } catch {
           /* keep existing header if refresh fails */
@@ -763,11 +906,20 @@ export default function SwipeScreen() {
       return () => {
         cancelled = true;
       };
-    }, [api]),
+    }, [api, switchToFeed]),
   );
 
   if (bootstrapping) {
     return <SettingUpScreen />;
+  }
+
+  if (feedSwitching) {
+    return (
+      <SwitchingFeedScreen
+        name={switchingFeedName || activeFeedName}
+        onBack={cancelFeedSwitch}
+      />
+    );
   }
 
   return (

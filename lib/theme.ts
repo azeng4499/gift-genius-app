@@ -1,4 +1,4 @@
-import { DarkTheme, DefaultTheme, type Theme } from "@react-navigation/native";
+import { DarkTheme, DefaultTheme, type Theme } from "expo-router/react-navigation";
 
 /**
  * Design tokens mirrored from `global.css` for use in JS/native APIs that can't

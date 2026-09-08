@@ -6,13 +6,11 @@
     "orientation": "portrait",
     "scheme": "giftgeniusapp",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.anonymous.giftgenius-app"
     },
     "android": {
-      "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
     },
     "web": {
@@ -31,7 +29,10 @@
       ],
       "expo-font",
       "expo-secure-store",
-      "expo-video"
+      "expo-video",
+      "expo-image",
+      "expo-status-bar",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,

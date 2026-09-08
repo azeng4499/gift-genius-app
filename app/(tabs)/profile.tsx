@@ -1,5 +1,5 @@
 import { useClerk } from "@clerk/clerk-expo";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect } from "expo-router/react-navigation";
 import Constants from "expo-constants";
 import { Image } from "expo-image";
 import { router } from "expo-router";

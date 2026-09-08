@@ -4,7 +4,7 @@ import {
   BottomSheetModal,
   BottomSheetView,
 } from "@gorhom/bottom-sheet";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect } from "expo-router/react-navigation";
 import { router } from "expo-router";
 import { Check, MoreVertical, Pencil, Plus, Trash2 } from "lucide-react-native";
 import { Fragment, useCallback, useMemo, useRef, useState } from "react";
@@ -41,6 +41,7 @@ import {
   setCurrentProfile,
   setCurrentSession,
 } from "@/lib/state/user-context";
+import { queueFeedSwitch } from "@/lib/state/pending-feed-switch";
 
 function formatBudget(feed: FeedDto): string | null {
   const { budgetMin, budgetMax } = feed;
@@ -120,23 +121,12 @@ export default function FeedsScreen() {
   );
 
   const switchToFeed = useCallback(
-    async (feed: FeedDto) => {
+    (feed: FeedDto) => {
       if (feed.id === activeFeedId || busyId) return;
-      setBusyId(feed.id);
-      try {
-        await startSessionForProfile(api, feed.id);
-        setActiveFeedId(feed.id);
-        toast.show({
-          message: `Now shopping for ${feed.name}`,
-          variant: "success",
-        });
-      } catch (err) {
-        toast.show({ message: friendlyErrorMessage(err), variant: "error" });
-      } finally {
-        setBusyId(null);
-      }
+      queueFeedSwitch(feed.id);
+      router.replace("/");
     },
-    [activeFeedId, api, busyId, toast],
+    [activeFeedId, busyId],
   );
 
   const editFeed = useCallback(
