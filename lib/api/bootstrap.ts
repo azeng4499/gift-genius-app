@@ -1,6 +1,6 @@
-import type { createGiftGeniusApiClient, FeedDto } from "./client";
-import { cacheHobbies } from "./hobbies";
-import { profileToFeedDto } from "./mappers";
+import type { createGiftGeniusApiClient, FeedDto, ProfileDto } from "./client";
+import { ensureHobbyCatalog } from "./hobbies";
+import { profileDtoToFeedDto, profileToFeedDto } from "./mappers";
 import {
   addStoredProfileId,
   getStoredProfileIds,
@@ -28,40 +28,105 @@ export type BootstrapResult = {
   needsOnboarding: boolean;
 };
 
-async function loadProfileDetails(
-  api: ApiClient,
-  profileIds: string[]
-): Promise<FeedDto[]> {
-  const profiles: FeedDto[] = [];
-  for (const profileId of profileIds) {
-    try {
-      const detail = await api.getProfile(profileId);
-      profiles.push(profileToFeedDto(detail));
-      if (detail.hobbies?.length) {
-        await cacheHobbies(detail.hobbies);
-      }
-    } catch {
-      /* stale id in local storage */
-    }
-  }
-  return profiles;
+type ProfileCache = {
+  userId: string;
+  feeds: FeedDto[];
+};
+
+let profileCache: ProfileCache | null = null;
+let profilesInFlight: Promise<FeedDto[]> | null = null;
+let profilesInFlightUserId: string | null = null;
+let fetchGeneration = 0;
+
+export function invalidateProfileCache(): void {
+  profileCache = null;
+  profilesInFlight = null;
+  profilesInFlightUserId = null;
+  fetchGeneration += 1;
 }
 
-async function syncProfilesFromServer(
+export function getCachedProfiles(backendUserId: string): FeedDto[] | null {
+  if (profileCache?.userId !== backendUserId) return null;
+  return profileCache.feeds;
+}
+
+async function rememberProfileIds(
+  backendUserId: string,
+  rows: ProfileDto[],
+): Promise<void> {
+  await Promise.all(rows.map((row) => addStoredProfileId(backendUserId, row.id)));
+}
+
+async function feedsFromList(api: ApiClient, rows: ProfileDto[]): Promise<FeedDto[]> {
+  const catalog = await ensureHobbyCatalog(api).catch(() => []);
+  const hobbyNameById = new Map(catalog.map((h) => [h.id, h.name]));
+  return rows.map((row) => profileDtoToFeedDto(row, hobbyNameById));
+}
+
+async function feedsFromStoredIds(
   api: ApiClient,
-  backendUserId: string
+  profileIds: string[],
+): Promise<FeedDto[]> {
+  const details = await Promise.all(
+    profileIds.map((id) => api.getProfile(id).catch(() => null)),
+  );
+  return details.filter((row) => row != null).map((row) => profileToFeedDto(row));
+}
+
+async function fetchProfilesFromServer(
+  api: ApiClient,
+  backendUserId: string,
 ): Promise<FeedDto[]> {
   try {
     const rows = await api.listProfiles();
-    for (const row of rows) {
-      await addStoredProfileId(backendUserId, row.id);
-    }
-    return loadProfileDetails(
-      api,
-      rows.map((row) => row.id)
-    );
+    await rememberProfileIds(backendUserId, rows);
+    if (rows.length > 0) return feedsFromList(api, rows);
   } catch {
-    return [];
+    /* fall through to locally stored ids */
+  }
+
+  const storedIds = await getStoredProfileIds(backendUserId);
+  if (storedIds.length === 0) return [];
+  return feedsFromStoredIds(api, storedIds);
+}
+
+/**
+ * List the user's feeds. Tab screens share one in-memory result so switching
+ * people/saved/settings does not re-fetch every profile. Pass force after a
+ * create/update/delete.
+ */
+export async function loadProfilesForUser(
+  api: ApiClient,
+  backendUserId: string,
+  opts?: { force?: boolean },
+): Promise<FeedDto[]> {
+  if (!opts?.force && profileCache?.userId === backendUserId) {
+    return profileCache.feeds;
+  }
+  if (
+    !opts?.force &&
+    profilesInFlight &&
+    profilesInFlightUserId === backendUserId
+  ) {
+    return profilesInFlight;
+  }
+
+  const generation = ++fetchGeneration;
+  const request = fetchProfilesFromServer(api, backendUserId).then((feeds) => {
+    if (generation === fetchGeneration) {
+      profileCache = { userId: backendUserId, feeds };
+    }
+    return feeds;
+  });
+  profilesInFlight = request;
+  profilesInFlightUserId = backendUserId;
+  try {
+    return await request;
+  } finally {
+    if (profilesInFlight === request) {
+      profilesInFlight = null;
+      profilesInFlightUserId = null;
+    }
   }
 }
 
@@ -74,21 +139,14 @@ export async function bootstrapFromClerkUser(
   api: ApiClient,
   clerkUser: ClerkUserLike
 ): Promise<BootstrapResult> {
-  // The backend verifies the Clerk token and maps it to a backend user.
   const { user } = await api.syncUser({
     name: clerkUser.fullName ?? undefined,
     email: clerkUser.primaryEmailAddress?.emailAddress ?? undefined,
   });
   setCurrentUser(user.id);
 
-  let profiles = await syncProfilesFromServer(api, user.id);
+  const profiles = await loadProfilesForUser(api, user.id, { force: true });
 
-  if (profiles.length === 0) {
-    const profileIds = await getStoredProfileIds(user.id);
-    profiles = await loadProfileDetails(api, profileIds);
-  }
-
-  // Brand-new user — let them create their first recipient themselves.
   if (profiles.length === 0) {
     setCurrentProfile(null);
     setCurrentSession(null);
@@ -98,7 +156,6 @@ export async function bootstrapFromClerkUser(
   const activeProfile = profiles[0];
   setCurrentProfile(activeProfile.id);
 
-  // Omit occasion → backend uses the profile's saved occasion.
   const session = await api.createSession(activeProfile.id);
   setCurrentSession(session.id);
 
@@ -108,17 +165,6 @@ export async function bootstrapFromClerkUser(
     sessionId: session.id,
     needsOnboarding: false,
   };
-}
-
-export async function loadProfilesForUser(
-  api: ApiClient,
-  backendUserId: string
-): Promise<FeedDto[]> {
-  const fromServer = await syncProfilesFromServer(api, backendUserId);
-  if (fromServer.length > 0) return fromServer;
-
-  const profileIds = await getStoredProfileIds(backendUserId);
-  return loadProfileDetails(api, profileIds);
 }
 
 export async function startSessionForProfile(

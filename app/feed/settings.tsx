@@ -13,6 +13,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { type FeedDto } from "@/lib/api/client";
 import { getApiClient } from "@/lib/api";
+import { invalidateProfileCache } from "@/lib/api/bootstrap";
 import {
   fromBackendOccasion,
   profileToFeedDto,
@@ -156,6 +157,7 @@ export default function FeedSettingsScreen() {
         relationship: relationship || null,
         occasion: nextOccasion,
       });
+      invalidateProfileCache();
 
       if (removedIds.length === 1) {
         const label = hobbyNamesRef.current.get(removedIds[0]) ?? "Interest";

@@ -11,6 +11,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { getApiClient } from "@/lib/api";
+import { invalidateProfileCache } from "@/lib/api/bootstrap";
 import { toBackendOccasion } from "@/lib/api/mappers";
 import { addStoredProfileId } from "@/lib/state/profile-store";
 import {
@@ -83,6 +84,7 @@ export default function NewFeedScreen() {
       });
 
       await addStoredProfileId(userId, created.id);
+      invalidateProfileCache();
       setCurrentProfile(created.id);
 
       const session = await api.createSession(created.id);

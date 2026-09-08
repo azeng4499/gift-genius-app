@@ -12,6 +12,7 @@ import {
 } from "@/components/feed-form/feed-form";
 import { useToast } from "@/components/ui/toast";
 import { getApiClient } from "@/lib/api";
+import { invalidateProfileCache } from "@/lib/api/bootstrap";
 import { fromBackendOccasion, toBackendOccasion } from "@/lib/api/mappers";
 import { getCurrentFeedId } from "@/lib/state/user-context";
 
@@ -85,6 +86,7 @@ export default function EditFeedScreen() {
       relationship: values.relationship || null,
       occasion: nextOccasion,
     });
+    invalidateProfileCache();
 
     // A changed name/budget doesn't alter recommendations, but interests,
     // relationship, and occasion do — refresh the feed only when they move.

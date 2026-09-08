@@ -31,7 +31,11 @@ import { SheetBackground } from "@/components/ui/sheet-background";
 import { Text } from "@/components/ui/text";
 import { useToast } from "@/components/ui/toast";
 import { getApiClient } from "@/lib/api";
-import { loadProfilesForUser, startSessionForProfile } from "@/lib/api/bootstrap";
+import {
+  getCachedProfiles,
+  loadProfilesForUser,
+  startSessionForProfile,
+} from "@/lib/api/bootstrap";
 import type { FeedDto } from "@/lib/api/client";
 import {
   formatPrice,
@@ -125,7 +129,10 @@ export default function BookmarksScreen() {
   const toast = useToast();
 
   const [items, setItems] = useState<BookmarkItemDto[]>([]);
-  const [feeds, setFeeds] = useState<FeedDto[]>([]);
+  const [feeds, setFeeds] = useState<FeedDto[]>(() => {
+    const userId = getCurrentUserId();
+    return (userId && getCachedProfiles(userId)) || [];
+  });
   const [selectedFeedId, setSelectedFeedId] = useState<string | null>(() =>
     getCurrentFeedId(),
   );
@@ -139,7 +146,9 @@ export default function BookmarksScreen() {
 
   const feedSheetRef = useRef<SelectSheetRef>(null);
   const menuSheetRef = useRef<BottomSheetModal>(null);
+  const hasItemsRef = useRef(false);
   const insets = useSafeAreaInsets();
+  hasItemsRef.current = items.length > 0;
 
   const openMenu = useCallback((item: BookmarkItemDto) => {
     setMenuItem(item);
@@ -179,7 +188,7 @@ export default function BookmarksScreen() {
       }
 
       if (isRefresh) setRefreshing(true);
-      else setLoading(true);
+      else if (!hasItemsRef.current) setLoading(true);
       setError(null);
 
       try {

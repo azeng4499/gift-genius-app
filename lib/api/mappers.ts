@@ -2,6 +2,7 @@ import type {
   FeedDto,
   FeedItemDto,
   ProfileDetailDto,
+  ProfileDto,
   QueueItemDto,
   SavedItemDto,
 } from "./client";
@@ -41,6 +42,17 @@ export function fromBackendOccasion(value: string | null | undefined): string {
 }
 
 export function profileToFeedDto(profile: ProfileDetailDto): FeedDto {
+  return profileDtoToFeedDto(
+    profile,
+    new Map((profile.hobbies ?? []).map((h) => [h.id, h.name])),
+  );
+}
+
+/** Map a list-endpoint profile using hobby names from the catalog. */
+export function profileDtoToFeedDto(
+  profile: ProfileDto,
+  hobbyNameById: Map<string, string>,
+): FeedDto {
   return {
     id: profile.id,
     userId: profile.user_id,
@@ -48,7 +60,9 @@ export function profileToFeedDto(profile: ProfileDetailDto): FeedDto {
     ageMin: null,
     ageMax: null,
     relationship: profile.relationship ?? null,
-    interests: profile.hobbies?.map((h) => h.name) ?? [],
+    interests: (profile.hobby_ids ?? [])
+      .map((id) => hobbyNameById.get(id))
+      .filter((name): name is string => Boolean(name)),
     budgetMin: profile.budget_min,
     budgetMax: profile.budget_max,
     occasion: profile.occasion ?? null,

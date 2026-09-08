@@ -5,6 +5,7 @@ import { useMemo } from "react";
 import { FeedForm, type FeedFormValues } from "@/components/feed-form/feed-form";
 import { useToast } from "@/components/ui/toast";
 import { getApiClient } from "@/lib/api";
+import { invalidateProfileCache } from "@/lib/api/bootstrap";
 import { toBackendOccasion } from "@/lib/api/mappers";
 import { addStoredProfileId } from "@/lib/state/profile-store";
 import {
@@ -35,6 +36,7 @@ export default function StartFeedScreen() {
     });
 
     await addStoredProfileId(userId, created.id);
+    invalidateProfileCache();
     setCurrentProfile(created.id);
 
     const session = await api.createSession(created.id);

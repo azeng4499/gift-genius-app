@@ -27,6 +27,8 @@ import { Text } from "@/components/ui/text";
 import { useToast } from "@/components/ui/toast";
 import { getApiClient } from "@/lib/api";
 import {
+  getCachedProfiles,
+  invalidateProfileCache,
   loadProfilesForUser,
   startSessionForProfile,
 } from "@/lib/api/bootstrap";
@@ -63,11 +65,17 @@ export default function FeedsScreen() {
   const insets = useSafeAreaInsets();
   const actionsSheetRef = useRef<BottomSheetModal>(null);
 
-  const [feeds, setFeeds] = useState<FeedDto[]>([]);
+  const [feeds, setFeeds] = useState<FeedDto[]>(() => {
+    const userId = getCurrentUserId();
+    return (userId && getCachedProfiles(userId)) || [];
+  });
   const [activeFeedId, setActiveFeedId] = useState<string | null>(() =>
     getCurrentFeedId(),
   );
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => {
+    const userId = getCurrentUserId();
+    return !(userId && getCachedProfiles(userId));
+  });
   const [refreshing, setRefreshing] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -85,11 +93,13 @@ export default function FeedsScreen() {
       }
 
       if (isRefresh) setRefreshing(true);
-      else setLoading(true);
+      else if (!getCachedProfiles(userId)) setLoading(true);
       setError(null);
 
       try {
-        const profiles = await loadProfilesForUser(api, userId);
+        const profiles = await loadProfilesForUser(api, userId, {
+          force: isRefresh,
+        });
         setFeeds(profiles);
         setActiveFeedId(getCurrentFeedId());
       } catch (err) {
@@ -155,6 +165,7 @@ export default function FeedsScreen() {
       setBusyId(feed.id);
       try {
         await api.deleteProfile(feed.id);
+        invalidateProfileCache();
         if (userId) await removeStoredProfileId(userId, feed.id);
 
         // Clear the active session if we just deleted the feed being shopped.
