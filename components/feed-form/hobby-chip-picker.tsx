@@ -12,6 +12,7 @@ import { X } from "lucide-react-native";
 
 import { getApiClient } from "@/lib/api";
 import type { HobbyDto } from "@/lib/api/client";
+import { hobbyMatchesQuery } from "@/lib/api/hobby-aliases";
 import { ensureHobbyCatalog } from "@/lib/api/hobbies";
 
 type HobbyChipPickerProps = {
@@ -21,10 +22,14 @@ type HobbyChipPickerProps = {
   confirmOnRemove?: boolean;
 };
 
+/** Max interests per person. The API allows 20; the picker stays smaller so
+ *  search queries stay focused. */
+const MAX_SELECTED = 8;
+
 /** Searchable multi-select of hobbies rendered as toggleable chips.
  *
  * Memoized so an unrelated parent re-render (e.g. typing in a sibling name
- * field) doesn't re-render the full ~200-chip catalog on every keystroke. */
+ * field) doesn't re-render the full catalog on every keystroke. */
 export const HobbyChipPicker = memo(function HobbyChipPicker({
   selectedIds,
   onChange,
@@ -68,12 +73,13 @@ export const HobbyChipPicker = memo(function HobbyChipPicker({
   // box, so exclude them here to avoid showing each one twice.
   const dropdownHobbies = useMemo(() => {
     if (!catalog) return [];
+    if (selectedIds.length >= MAX_SELECTED) return [];
     const q = query.trim().toLowerCase();
     return catalog.filter(
       (h) =>
-        !selected.has(h.id) && (!q || h.name.toLowerCase().includes(q)),
+        !selected.has(h.id) && hobbyMatchesQuery(h.name, q),
     );
-  }, [catalog, query, selected]);
+  }, [catalog, query, selected, selectedIds.length]);
 
   function applyRemove(id: string) {
     onChange(selectedIds.filter((x) => x !== id));
@@ -101,6 +107,7 @@ export const HobbyChipPicker = memo(function HobbyChipPicker({
 
   function addHobby(hobby: HobbyDto) {
     if (selected.has(hobby.id)) return;
+    if (selectedIds.length >= MAX_SELECTED) return;
     onChange([...selectedIds, hobby.id]);
     // Clear the query so the user can immediately search for the next one.
     setQuery("");
@@ -172,7 +179,9 @@ export const HobbyChipPicker = memo(function HobbyChipPicker({
         ) : null}
         {selectedIds.length > 0 ? (
           <Text className="absolute bottom-1.5 right-3 text-[11px] text-slate-400">
-            {selectedIds.length} selected
+            {selectedIds.length >= MAX_SELECTED
+              ? `${MAX_SELECTED} max`
+              : `${selectedIds.length} selected`}
           </Text>
         ) : null}
       </View>
@@ -185,7 +194,11 @@ export const HobbyChipPicker = memo(function HobbyChipPicker({
       >
         {dropdownHobbies.length === 0 ? (
           <Text className="p-1 text-sm text-slate-500">
-            {query.trim() ? "No matches." : "All interests added."}
+            {query.trim()
+              ? "No matches."
+              : selectedIds.length >= MAX_SELECTED
+                ? `You can pick up to ${MAX_SELECTED} interests.`
+                : "All interests added."}
           </Text>
         ) : (
           dropdownHobbies.map((hobby) => (

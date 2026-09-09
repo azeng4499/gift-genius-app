@@ -3,7 +3,7 @@ import * as SecureStore from "expo-secure-store";
 import type { createGiftGeniusApiClient, HobbyDto } from "./client";
 import { getGiftGeniusApiBaseUrl, isLocalDevApiHost } from "./config";
 
-const HOBBY_CACHE_KEY = "gg_hobby_catalog_v2";
+const HOBBY_CACHE_KEY = "gg_hobby_catalog_v3";
 
 type ApiClient = ReturnType<typeof createGiftGeniusApiClient>;
 
