@@ -1,9 +1,3 @@
-import {
-  BottomSheetBackdrop,
-  type BottomSheetBackdropProps,
-  BottomSheetModal,
-  BottomSheetView,
-} from "@gorhom/bottom-sheet";
 import { useFocusEffect } from "expo-router/react-navigation";
 import { router } from "expo-router";
 import { Check, MoreVertical, Pencil, Plus, Trash2 } from "lucide-react-native";
@@ -21,8 +15,9 @@ import {
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 
+import { ActionSheet, type ActionSheetRef } from "@/components/ui/action-sheet";
+import { GiftLoadingView } from "@/components/ui/gift-loader";
 import { Separator } from "@/components/ui/separator";
-import { SheetBackground } from "@/components/ui/sheet-background";
 import { Text } from "@/components/ui/text";
 import { useToast } from "@/components/ui/toast";
 import { getApiClient } from "@/lib/api";
@@ -30,7 +25,6 @@ import {
   getCachedProfiles,
   invalidateProfileCache,
   loadProfilesForUser,
-  startSessionForProfile,
 } from "@/lib/api/bootstrap";
 import type { FeedDto } from "@/lib/api/client";
 import { friendlyErrorMessage } from "@/lib/api/errors";
@@ -64,7 +58,7 @@ export default function FeedsScreen() {
   const api = useMemo(() => getApiClient(), []);
   const toast = useToast();
   const insets = useSafeAreaInsets();
-  const actionsSheetRef = useRef<BottomSheetModal>(null);
+  const actionsSheetRef = useRef<ActionSheetRef>(null);
 
   const [feeds, setFeeds] = useState<FeedDto[]>(() => {
     const userId = getCurrentUserId();
@@ -129,25 +123,11 @@ export default function FeedsScreen() {
     [activeFeedId, busyId],
   );
 
-  const editFeed = useCallback(
-    async (feed: FeedDto) => {
-      // The edit screen operates on the active feed, so switch to it first.
-      if (feed.id !== activeFeedId) {
-        setBusyId(feed.id);
-        try {
-          await startSessionForProfile(api, feed.id);
-          setActiveFeedId(feed.id);
-        } catch (err) {
-          toast.show({ message: friendlyErrorMessage(err), variant: "error" });
-          return;
-        } finally {
-          setBusyId(null);
-        }
-      }
-      router.push("/feed/edit");
-    },
-    [activeFeedId, api, toast],
-  );
+  const editFeed = useCallback((feed: FeedDto) => {
+    // Edit this feed directly via a route param — no session switch, so the
+    // feed being shopped on Home stays put.
+    router.push({ pathname: "/feed/edit", params: { feedId: feed.id } });
+  }, []);
 
   const deleteFeed = useCallback(
     async (feed: FeedDto) => {
@@ -199,17 +179,6 @@ export default function FeedsScreen() {
     actionsSheetRef.current?.present();
   }, []);
 
-  const renderBackdrop = useCallback(
-    (props: BottomSheetBackdropProps) => (
-      <BottomSheetBackdrop
-        {...props}
-        disappearsOnIndex={-1}
-        appearsOnIndex={0}
-        opacity={0.5}
-      />
-    ),
-    [],
-  );
 
   return (
     <SafeAreaView className="flex-1 bg-white" edges={["top"]}>
@@ -235,10 +204,10 @@ export default function FeedsScreen() {
 
       {loading ? (
         <View className="flex-1 items-center justify-center">
-          <ActivityIndicator color="#1f7a5c" />
-          <Text className="mt-3 text-slate-500" fontStyle="sf-display-light">
-            Loading feeds…
-          </Text>
+          <GiftLoadingView
+            title="Loading your feeds"
+            subtitle="Gathering everyone you shop for."
+          />
         </View>
       ) : (
         <ScrollView
@@ -349,19 +318,11 @@ export default function FeedsScreen() {
         </ScrollView>
       )}
 
-      <BottomSheetModal
-        ref={actionsSheetRef}
-        enableDynamicSizing
-        enablePanDownToClose
-        topInset={insets.top}
-        backdropComponent={renderBackdrop}
-        backgroundComponent={SheetBackground}
-        handleIndicatorStyle={{ backgroundColor: "#ccc" }}
-      >
-        <BottomSheetView
+      <ActionSheet ref={actionsSheetRef}>
+        <View
           style={{
             paddingHorizontal: 16,
-            paddingTop: 16,
+            paddingTop: 8,
             paddingBottom: 16 + insets.bottom,
           }}
         >
@@ -418,8 +379,8 @@ export default function FeedsScreen() {
               </Text>
             </Pressable>
           </View>
-        </BottomSheetView>
-      </BottomSheetModal>
+        </View>
+      </ActionSheet>
     </SafeAreaView>
   );
 }

@@ -1,8 +1,21 @@
-import type { BottomSheetBackgroundProps } from "@gorhom/bottom-sheet";
 import { useUnstableNativeVariable } from "nativewind";
 import { useState } from "react";
-import { StyleSheet, View, type LayoutChangeEvent } from "react-native";
+import {
+  StyleSheet,
+  View,
+  type LayoutChangeEvent,
+  type StyleProp,
+  type ViewStyle,
+} from "react-native";
 import Svg, { Defs, RadialGradient, Rect, Stop } from "react-native-svg";
+
+// Minimal prop surface (a subset of the old @gorhom BottomSheetBackgroundProps)
+// so this renders both as a plain absolute-fill background and, if ever needed,
+// as a sheet backgroundComponent — without depending on @gorhom.
+type SheetBackgroundProps = {
+  pointerEvents?: "auto" | "none" | "box-none" | "box-only";
+  style?: StyleProp<ViewStyle>;
+};
 
 const SHEET_RADIUS = 15; // matches @gorhom default background corner radius
 
@@ -14,13 +27,13 @@ function useSheetColor(varName: string, fallback: string) {
 }
 
 /**
- * Radial-gradient background for @gorhom bottom sheets — a soft green surface
- * with a highlight near the top edge. Pass as `backgroundComponent`.
+ * Radial-gradient sheet surface — a soft green background with a highlight near
+ * the top edge. Rendered as an absolute-fill layer behind sheet content.
  */
 export function SheetBackground({
   pointerEvents,
   style,
-}: BottomSheetBackgroundProps) {
+}: SheetBackgroundProps) {
   const base = useSheetColor("--sheet-surface", "154 16% 91%");
   const highlight = useSheetColor("--sheet-highlight", "151 16% 72%");
 

@@ -1,18 +1,10 @@
-import {
-  BottomSheetBackdrop,
-  BottomSheetFooter,
-  BottomSheetModal,
-  BottomSheetScrollView,
-  type BottomSheetBackdropProps,
-  type BottomSheetFooterProps,
-} from "@gorhom/bottom-sheet";
 import { router } from "expo-router";
 import { Check } from "lucide-react-native";
-import { forwardRef, useCallback, useImperativeHandle, useRef } from "react";
-import { Pressable, View } from "react-native";
+import { forwardRef, useCallback, useRef } from "react";
+import { Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { SheetBackground } from "@/components/ui/sheet-background";
+import { ActionSheet, type ActionSheetRef } from "@/components/ui/action-sheet";
 import { Text } from "@/components/ui/text";
 
 export type SelectSheetItem = {
@@ -21,12 +13,8 @@ export type SelectSheetItem = {
   subtitle?: string;
 };
 
-// Imperative handle the parent uses to open/close the sheet. Mirrors the
-// BottomSheetModal methods this component needs to expose.
-export type SelectSheetRef = {
-  present: () => void;
-  dismiss: () => void;
-};
+// Imperative handle the parent uses to open/close the sheet.
+export type SelectSheetRef = ActionSheetRef;
 
 type SelectSheetProps = {
   heading: string;
@@ -45,9 +33,9 @@ type SelectSheetProps = {
 
 /**
  * Bottom-sheet picker: a titled list of selectable rows over the shared sage
- * sheet surface, plus a primary CTA that navigates elsewhere. Selection is
- * signaled by a green outline and a filled check dot; every row is otherwise
- * styled identically. Drive it via a `SelectSheetRef` (`present`/`dismiss`).
+ * sheet surface, plus an optional primary CTA that navigates elsewhere.
+ * Selection is signaled by a green outline and a filled check dot. Drive it via
+ * a `SelectSheetRef` (`present` / `dismiss`).
  */
 export const SelectSheet = forwardRef<SelectSheetRef, SelectSheetProps>(
   function SelectSheet(
@@ -55,23 +43,16 @@ export const SelectSheet = forwardRef<SelectSheetRef, SelectSheetProps>(
     ref,
   ) {
     const insets = useSafeAreaInsets();
-    const sheetRef = useRef<BottomSheetModal>(null);
+    const sheetRef = useRef<ActionSheetRef>(null);
 
-    useImperativeHandle(ref, () => ({
-      present: () => sheetRef.current?.present(),
-      dismiss: () => sheetRef.current?.dismiss(),
-    }));
-
-    const renderBackdrop = useCallback(
-      (props: BottomSheetBackdropProps) => (
-        <BottomSheetBackdrop
-          {...props}
-          disappearsOnIndex={-1}
-          appearsOnIndex={0}
-          opacity={0.5}
-        />
-      ),
-      [],
+    // Expose the inner sheet's imperative handle to the parent.
+    const setRef = useCallback(
+      (node: ActionSheetRef | null) => {
+        sheetRef.current = node;
+        if (typeof ref === "function") ref(node);
+        else if (ref) ref.current = node;
+      },
+      [ref],
     );
 
     const hasCta = Boolean(ctaLabel && ctaSlug);
@@ -82,79 +63,35 @@ export const SelectSheet = forwardRef<SelectSheetRef, SelectSheetProps>(
       router.push(ctaSlug as never);
     }, [ctaSlug]);
 
-    // Sticky CTA pinned to the bottom of the sheet: it stays put while the tile
-    // list scrolls behind it. Sits flush at the bottom edge and extends its
-    // surface fill (--sheet-surface base) through the bottom safe area so rows
-    // never peek out below or beside the pill.
-    const renderFooter = useCallback(
-      (props: BottomSheetFooterProps) => (
-        <BottomSheetFooter {...props} bottomInset={0}>
-          <View
-            className="px-4 pt-2"
-            style={{
-              backgroundColor: "#E5ECE9",
-              paddingBottom: 16 + insets.bottom,
-            }}
-          >
-            <Pressable
-              className="h-14 flex-row items-center justify-center gap-2 rounded-full bg-zinc-900"
-              onPress={onCtaPress}
-            >
-              {typeof ctaLabel === "string" ? (
-                <Text className="text-center font-sf-display-semibold text-[16px] text-white">
-                  {ctaLabel}
-                </Text>
-              ) : (
-                ctaLabel
-              )}
-              {ctaIcon}
-            </Pressable>
-          </View>
-        </BottomSheetFooter>
-      ),
-      [ctaIcon, ctaLabel, insets.bottom, onCtaPress],
-    );
-
     return (
-      <BottomSheetModal
-        ref={sheetRef}
-        // Size to content so the sheet only comes out far enough to fit the
-        // rows; capped at full height (topInset) after which the list scrolls.
-        enableDynamicSizing
-        enablePanDownToClose
-        topInset={insets.top}
-        backdropComponent={renderBackdrop}
-        backgroundComponent={SheetBackground}
-        footerComponent={hasCta ? renderFooter : undefined}
-        handleIndicatorStyle={{ backgroundColor: "#ccc" }}
-      >
-        <BottomSheetScrollView
+      <ActionSheet ref={setRef}>
+        <View className="px-4 pt-2">
+          <Text
+            className="text-left text-xl text-slate-700"
+            fontStyle="noto-serif-bold"
+          >
+            {heading}
+          </Text>
+          {subheading ? (
+            <Text
+              className="px-1 pb-4 pt-1 text-left"
+              fontStyle="sf-display-light"
+            >
+              {subheading}
+            </Text>
+          ) : (
+            <View className="pb-3" />
+          )}
+        </View>
+
+        <ScrollView
+          style={{ maxHeight: 420 }}
           contentContainerStyle={{
             paddingHorizontal: 16,
-            paddingTop: 16,
-            // Reserve room for the sticky footer so the last row clears it
-            // (only when there is a footer CTA).
-            paddingBottom: (hasCta ? 96 : 16) + insets.bottom,
+            paddingBottom: hasCta ? 8 : 16 + insets.bottom,
           }}
           showsVerticalScrollIndicator={false}
         >
-          <View>
-            <Text
-              className="text-left text-xl text-slate-700"
-              fontStyle="noto-serif-bold"
-            >
-              {heading}
-            </Text>
-            {subheading ? (
-              <Text
-                className="text-left pb-6 pt-1 px-1"
-                fontStyle="sf-display-light"
-              >
-                {subheading}
-              </Text>
-            ) : null}
-          </View>
-
           <View className="gap-2.5">
             {data.map((item) => {
               const isSelected = item.id === selectedId;
@@ -205,8 +142,29 @@ export const SelectSheet = forwardRef<SelectSheetRef, SelectSheetProps>(
               );
             })}
           </View>
-        </BottomSheetScrollView>
-      </BottomSheetModal>
+        </ScrollView>
+
+        {hasCta ? (
+          <View
+            className="px-4 pt-2"
+            style={{ paddingBottom: 16 + insets.bottom }}
+          >
+            <Pressable
+              className="h-14 flex-row items-center justify-center gap-2 rounded-full bg-zinc-900"
+              onPress={onCtaPress}
+            >
+              {typeof ctaLabel === "string" ? (
+                <Text className="text-center font-sf-display-semibold text-[16px] text-white">
+                  {ctaLabel}
+                </Text>
+              ) : (
+                ctaLabel
+              )}
+              {ctaIcon}
+            </Pressable>
+          </View>
+        ) : null}
+      </ActionSheet>
     );
   },
 );

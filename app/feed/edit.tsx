@@ -1,4 +1,4 @@
-import { router, Stack } from "expo-router";
+import { router, Stack, useLocalSearchParams } from "expo-router";
 import { Save } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
@@ -19,6 +19,10 @@ import { getCurrentFeedId } from "@/lib/state/user-context";
 export default function EditFeedScreen() {
   const api = useMemo(() => getApiClient(), []);
   const toast = useToast();
+  // Optional target feed. When absent we edit the active feed (e.g. Profile's
+  // "Edit current feed"); when a People "…" menu passes one, we edit that feed
+  // without switching the active session to it.
+  const { feedId } = useLocalSearchParams<{ feedId?: string }>();
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -32,7 +36,7 @@ export default function EditFeedScreen() {
   }>({ hobbyIds: [], relationship: "", occasion: "" });
 
   const loadFeed = useCallback(async () => {
-    const profileId = getCurrentFeedId();
+    const profileId = feedId ?? getCurrentFeedId();
     if (!profileId) {
       setLoadError("Open a feed from the home screen first.");
       setLoading(false);
@@ -65,14 +69,14 @@ export default function EditFeedScreen() {
     } finally {
       setLoading(false);
     }
-  }, [api]);
+  }, [api, feedId]);
 
   useEffect(() => {
     loadFeed();
   }, [loadFeed]);
 
   const onSubmit = async (values: FeedFormValues) => {
-    const profileId = getCurrentFeedId();
+    const profileId = feedId ?? getCurrentFeedId();
     if (!profileId) {
       throw new Error("Nothing to save. Reload this screen.");
     }
@@ -101,7 +105,14 @@ export default function EditFeedScreen() {
 
     toast.show({ message: "Changes saved", variant: "success" });
 
-    if (interestsChanged || relationshipChanged || occasionChanged) {
+    // Only bounce to Home for a refresh when we edited the feed currently being
+    // shopped. Editing another person's feed (from the People "…" menu) must not
+    // switch the active feed, so just return to where we came from.
+    const editedActiveFeed = profileId === getCurrentFeedId();
+    if (
+      editedActiveFeed &&
+      (interestsChanged || relationshipChanged || occasionChanged)
+    ) {
       router.replace({
         pathname: "/",
         params: { refreshFeedKey: String(Date.now()) },

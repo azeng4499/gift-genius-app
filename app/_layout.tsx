@@ -4,7 +4,7 @@ import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { PortalHost } from "@rn-primitives/portal";
 import { useFonts } from "expo-font";
 import { ThemeProvider } from "expo-router/react-navigation";
-import { Stack, useRouter, useSegments } from "expo-router";
+import { Stack } from "expo-router";
 import { useColorScheme } from "nativewind";
 import { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -36,35 +36,31 @@ function BindToken() {
 
 function AuthGate() {
   const { isSignedIn, isLoaded } = useAuth();
-  const segments = useSegments();
-  const router = useRouter();
 
-  useEffect(() => {
-    // Design mode: skip the sign-in gate entirely, but still bounce away from
-    // the auth screens so we land on the app.
-    if (DEV_MODE) {
-      if (segments[0] === "(auth)") router.replace("/");
-      return;
-    }
-    if (!isLoaded) return;
-    const inAuthGroup = segments[0] === "(auth)";
-    if (!isSignedIn && !inAuthGroup) {
-      router.replace("/(auth)/sign-in");
-    } else if (isSignedIn && inAuthGroup) {
-      router.replace("/");
-    }
-  }, [isLoaded, isSignedIn, segments, router]);
-
+  // Wait for Clerk to resolve before rendering any route. This is the key to the
+  // gate: until we know the answer, signed-in users mustn't flash the auth
+  // screen and signed-out users mustn't mount the feed (which would start
+  // bootstrapping and show its loading screen).
   if (!DEV_MODE && !isLoaded) return null;
 
+  const signedIn = DEV_MODE || isSignedIn === true;
+
+  // Stack.Protected removes the guarded-out screens from the navigation tree, so
+  // an unauthenticated cold start can only ever land on the auth stack — the
+  // feed never mounts until the user is signed in. No post-render redirect race.
   return (
     <Stack>
-      <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-      <Stack.Screen name="feed/new" options={{ title: "Add Feed Person" }} />
-      <Stack.Screen name="feed/settings" options={{ title: "Feed settings" }} />
-      <Stack.Screen name="feed/start" options={{ title: "Start a feed" }} />
-      <Stack.Screen name="feed/edit" options={{ title: "Edit feed" }} />
+      <Stack.Protected guard={!signedIn}>
+        <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+      </Stack.Protected>
+
+      <Stack.Protected guard={signedIn}>
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="feed/new" options={{ title: "Add Feed Person" }} />
+        <Stack.Screen name="feed/settings" options={{ title: "Feed settings" }} />
+        <Stack.Screen name="feed/start" options={{ title: "Start a feed" }} />
+        <Stack.Screen name="feed/edit" options={{ title: "Edit feed" }} />
+      </Stack.Protected>
     </Stack>
   );
 }

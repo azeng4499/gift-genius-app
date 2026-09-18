@@ -1,32 +1,40 @@
-import { ChevronLeft } from "lucide-react-native";
-import { ActivityIndicator, Pressable, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
-import { Text } from "@/components/ui/text";
+import { StyleSheet, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
-// Brand green (--primary ≈ hsl(160 60% 30%)).
-const BRAND = "#1f7a5c";
+import { GiftLoadingView } from "@/components/ui/gift-loader";
+
+// Airy sage-to-white wash that ties the loading states to the app's sheet
+// surface, so they never read as a blank white spinner screen.
+const BACKDROP = ["#F4F8F6", "#FFFFFF"] as const;
 
 type LoadingStateProps = {
   title?: string;
   subtitle?: string;
+  compact?: boolean;
 };
 
 /**
- * Centered spinner + copy, shared by the full-screen bootstrap state and the
- * in-feed loading overlay so both read identically. Copy is overridable.
+ * Centered gift-medallion loader + copy, shared by the full-screen bootstrap
+ * state and the in-feed loading overlays so every loading moment reads the same.
  */
 export function LoadingState({
-  title = "Setting things up…",
-  subtitle = "Getting your gift lists ready.",
+  title = "Setting up your gifts",
+  subtitle = "Getting your lists ready.",
+  compact = false,
 }: LoadingStateProps = {}) {
+  return <GiftLoadingView title={title} subtitle={subtitle} compact={compact} />;
+}
+
+/** Absolute-fill loading layer for in-feed states, over the sage wash. */
+export function LoadingOverlay({ title, subtitle, compact }: LoadingStateProps) {
   return (
-    <View className="items-center justify-center px-8">
-      <ActivityIndicator size="large" color={BRAND} />
-      <Text className="mt-4 text-center font-noto-serif-bold text-base text-zinc-900">
-        {title}
-      </Text>
-      <Text className="mt-1 text-center text-sm text-zinc-500">{subtitle}</Text>
+    <View style={StyleSheet.absoluteFill}>
+      <LinearGradient colors={BACKDROP} style={StyleSheet.absoluteFill} />
+      <View className="flex-1 items-center justify-center">
+        <LoadingState title={title} subtitle={subtitle} compact={compact} />
+      </View>
     </View>
   );
 }
@@ -34,41 +42,31 @@ export function LoadingState({
 /** Full-screen "getting ready" state shown while we bootstrap the user + feed. */
 export function SettingUpScreen() {
   return (
-    <SafeAreaView className="flex-1 items-center justify-center bg-white">
-      <StatusBar style="dark" />
-      <LoadingState />
-    </SafeAreaView>
+    <View className="flex-1">
+      <LinearGradient colors={BACKDROP} style={StyleSheet.absoluteFill} />
+      <SafeAreaView className="flex-1 items-center justify-center">
+        <StatusBar style="dark" />
+        <LoadingState />
+      </SafeAreaView>
+    </View>
   );
 }
 
-/** Full-screen switch overlay with a back control to cancel mid-load. */
-export function SwitchingFeedScreen({
-  name,
-  onBack,
-}: {
-  name: string;
-  onBack: () => void;
-}) {
+/** Full-screen state shown while the selected feed loads. */
+export function SwitchingFeedScreen({ name }: { name: string }) {
   return (
-    <SafeAreaView className="flex-1 bg-white" edges={["top", "left", "right"]}>
-      <StatusBar style="dark" />
-      <View className="px-2 pt-1">
-        <Pressable
-          onPress={onBack}
-          hitSlop={12}
-          accessibilityRole="button"
-          accessibilityLabel="Go back"
-          className="h-11 w-11 items-center justify-center rounded-full active:bg-slate-100"
-        >
-          <ChevronLeft size={28} color="#0f172a" strokeWidth={2} />
-        </Pressable>
-      </View>
-      <View className="flex-1 items-center justify-center">
+    <View className="flex-1">
+      <LinearGradient colors={BACKDROP} style={StyleSheet.absoluteFill} />
+      <SafeAreaView
+        className="flex-1 items-center justify-center"
+        edges={["top", "left", "right"]}
+      >
+        <StatusBar style="dark" />
         <LoadingState
-          title="Getting your feed ready…"
-          subtitle={`Finding gifts for ${name}.`}
+          title={`Finding gifts for ${name}`}
+          subtitle="Hand-picking ideas they’ll love."
         />
-      </View>
-    </SafeAreaView>
+      </SafeAreaView>
+    </View>
   );
 }

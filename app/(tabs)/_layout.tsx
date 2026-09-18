@@ -63,12 +63,15 @@ export default function TabsLayout() {
         name="profile"
         options={{
           title: "Settings",
+          // Unlike the other glyphs, CircleUserRound's outer shape is a circle,
+          // so filling it on focus collapses the icon into a solid black dot.
+          // Signal the active state with color + a heavier stroke instead.
           tabBarIcon: ({ color, focused }) => (
             <CircleUserRound
               size={24}
               color={color}
-              strokeWidth={1.75}
-              fill={focused ? color : "transparent"}
+              strokeWidth={focused ? 2.25 : 1.75}
+              fill="transparent"
             />
           ),
         }}

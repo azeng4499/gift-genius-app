@@ -10,22 +10,26 @@ import {
   NativeScrollEvent,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 import { Text } from "@/components/ui/text";
 import { ThemedView } from "@/components/themed-view";
-import { ChevronDown, Plus, Ellipsis } from "lucide-react-native";
+import { ChevronDown, Pencil, Plus, Ellipsis } from "lucide-react-native";
 
 import ProductCard from "@/components/product-card/product-card";
 import {
   SettingUpScreen,
   SwitchingFeedScreen,
-  LoadingState,
+  LoadingOverlay,
 } from "@/components/feed/setting-up-screen";
 import {
   SelectSheet,
   type SelectSheetItem,
   type SelectSheetRef,
 } from "@/components/ui/select-sheet";
+import { ActionSheet, type ActionSheetRef } from "@/components/ui/action-sheet";
 import {
   bootstrapFromClerkUser,
   loadProfilesForUser,
@@ -98,6 +102,9 @@ export default function SwipeScreen() {
     refreshFeedKey?: string;
   }>();
   const [feedItems, setFeedItems] = useState<QueueItemDto[]>([]);
+  // Mirrors feedItems so async handlers can read the latest length (e.g. to tell
+  // whether a new batch was appended) without capturing a stale closure.
+  const feedItemsRef = useRef<QueueItemDto[]>([]);
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
   const [feedLoading, setFeedLoading] = useState(false);
   // Overlay shown over the feed area while (re)loading cards, and its error
@@ -125,6 +132,8 @@ export default function SwipeScreen() {
   const interactedItemIdsRef = useRef<Set<string>>(new Set());
   const bootstrappedClerkUserIdRef = useRef<string | null>(null);
   const bottomSheetRef = useRef<SelectSheetRef>(null);
+  const feedMenuRef = useRef<ActionSheetRef>(null);
+  const insets = useSafeAreaInsets();
   // Which profile the on-screen cards belong to. People/bookmarks can change
   // the active session while this tab is unfocused; we reload when they differ.
   const loadedProfileIdRef = useRef<string | null>(null);
@@ -342,18 +351,6 @@ export default function SwipeScreen() {
     setFeedError(null);
   }, []);
 
-  const cancelFeedSwitch = useCallback(() => {
-    switchGenerationRef.current += 1;
-    feedEpochRef.current += 1;
-    stopFeedPolling();
-    restorePreviousFeed();
-    feedSwitchingRef.current = false;
-    setFeedSwitching(false);
-    if (switchSourceRef.current === "people") {
-      router.replace("/people");
-    }
-  }, [restorePreviousFeed, stopFeedPolling]);
-
   const switchToFeed = useCallback(
     async (
       feed: FeedDto,
@@ -510,20 +507,23 @@ export default function SwipeScreen() {
   }, [api, params.refreshFeedKey, resetAndLoadFeedCards, toast]);
 
   const advanceToNextCard = useCallback(async () => {
-    const nextIndex = currentCardIndex + 1;
     const isAtEnd = currentCardIndex >= feedItems.length - 1;
     if (isAtEnd) {
-      // Reached the end of the feed — show the loading overlay while more loads.
+      // End of the feed — show the loading overlay while the next batch loads,
+      // then land on the first card of that batch (only if it actually grew).
+      const firstNewIndex = feedItemsRef.current.length;
       await runFeedLoad(async () => {
         await loadMoreFeedItems();
       });
+      if (feedItemsRef.current.length > firstNewIndex) {
+        setCurrentCardIndex(firstNewIndex);
+        setPendingScrollIndex(firstNewIndex);
+      }
+      return;
     }
+    const nextIndex = currentCardIndex + 1;
     setCurrentCardIndex(nextIndex);
-    if (nextIndex < feedItems.length || !isAtEnd) {
-      feedListRef.current?.scrollToIndex({ index: nextIndex, animated: true });
-    } else {
-      setPendingScrollIndex(nextIndex);
-    }
+    feedListRef.current?.scrollToIndex({ index: nextIndex, animated: true });
   }, [currentCardIndex, feedItems.length, loadMoreFeedItems, runFeedLoad]);
 
   const submitInteraction = useCallback(
@@ -728,6 +728,28 @@ export default function SwipeScreen() {
         return;
       }
 
+      // Only load the next batch once the user swipes *while already on* the last
+      // prepared card (a forward overscroll that stays on it) — not merely when
+      // they arrive at it — so they get to see and swipe that last card first.
+      // The overlay fires immediately here, before the skip signals below. When
+      // the batch lands, jump to its first card instead of the old last card.
+      const lastIndex = feedItems.length - 1;
+      if (
+        previousIndex >= lastIndex &&
+        nextIndex >= lastIndex &&
+        !feedLoading
+      ) {
+        const firstNewIndex = feedItemsRef.current.length;
+        runFeedLoad(async () => {
+          await loadMoreFeedItems();
+        }).then(() => {
+          if (feedItemsRef.current.length > firstNewIndex) {
+            setCurrentCardIndex(firstNewIndex);
+            setPendingScrollIndex(firstNewIndex);
+          }
+        });
+      }
+
       if (nextIndex > previousIndex) {
         setInteractionInFlight(true);
         try {
@@ -767,12 +789,6 @@ export default function SwipeScreen() {
         visibleItemId: visibleItem?.id ?? null,
         visibleItemTitle: visibleItem?.title ?? null,
       });
-      if (nextIndex >= feedItems.length - 1 && !feedLoading) {
-        // Reached the end of the feed — show the loading overlay while more loads.
-        await runFeedLoad(async () => {
-          await loadMoreFeedItems();
-        });
-      }
     },
     [
       api,
@@ -829,6 +845,10 @@ export default function SwipeScreen() {
       handleInteraction,
     ],
   );
+
+  useEffect(() => {
+    feedItemsRef.current = feedItems;
+  }, [feedItems]);
 
   useEffect(() => {
     if (pendingScrollIndex == null) return;
@@ -915,10 +935,7 @@ export default function SwipeScreen() {
 
   if (feedSwitching) {
     return (
-      <SwitchingFeedScreen
-        name={switchingFeedName || activeFeedName}
-        onBack={cancelFeedSwitch}
-      />
+      <SwitchingFeedScreen name={switchingFeedName || activeFeedName} />
     );
   }
 
@@ -949,7 +966,14 @@ export default function SwipeScreen() {
             </View>
           </Pressable>
           <View className="flex-1 flex-row justify-end">
-            <Ellipsis size={24} color="black" />
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Feed options"
+              hitSlop={8}
+              onPress={() => feedMenuRef.current?.present()}
+            >
+              <Ellipsis size={24} color="black" />
+            </Pressable>
           </View>
         </View>
         <View className="relative flex-1 px-2">
@@ -983,12 +1007,10 @@ export default function SwipeScreen() {
           </View>
           {feedItems.length === 0 && feedStatus === "ready" ? (
             feedPreparing ? (
-              <View className="absolute inset-0 items-center justify-center bg-white">
-                <LoadingState
-                  title="Getting your feed ready…"
-                  subtitle={`Finding gifts for ${activeFeedName}.`}
-                />
-              </View>
+              <LoadingOverlay
+                title={`Finding gifts for ${activeFeedName}`}
+                subtitle="Hand-picking ideas they’ll love."
+              />
             ) : (
               <View className="absolute inset-0 items-center justify-center bg-white px-8">
                 <Text
@@ -1014,12 +1036,10 @@ export default function SwipeScreen() {
             )
           ) : null}
           {feedStatus === "loading" ? (
-            <View className="absolute inset-0 items-center justify-center bg-white">
-              <LoadingState
-                title="Loading more items…"
-                subtitle="Finding more gifts for you."
-              />
-            </View>
+            <LoadingOverlay
+              title="Finding more gifts"
+              subtitle="Fresh ideas, coming up."
+            />
           ) : null}
           {feedStatus === "error" ? (
             <View className="absolute inset-0 items-center justify-center bg-white px-8">
@@ -1059,6 +1079,54 @@ export default function SwipeScreen() {
         ctaIcon={<Plus size={18} color="white" strokeWidth={2.5} />}
         ctaSlug="/feed/start"
       />
+
+      <ActionSheet ref={feedMenuRef}>
+        <View
+          style={{
+            paddingHorizontal: 16,
+            paddingTop: 8,
+            paddingBottom: 16 + insets.bottom,
+          }}
+        >
+          <View>
+            <Text
+              className="text-left text-xl text-slate-700"
+              fontStyle="noto-serif-bold"
+              numberOfLines={1}
+            >
+              {activeFeedName}
+            </Text>
+            <Text
+              className="px-1 pb-6 pt-1 text-left"
+              fontStyle="sf-display-light"
+            >
+              Manage this feed.
+            </Text>
+          </View>
+
+          <View className="gap-2.5">
+            <Pressable
+              onPress={() => {
+                feedMenuRef.current?.dismiss();
+                router.push({
+                  pathname: "/feed/edit",
+                  params: selectedFeedId ? { feedId: selectedFeedId } : {},
+                });
+              }}
+              className="flex-row items-center gap-3 rounded-2xl px-4 py-3.5"
+              style={{ backgroundColor: "rgba(255,255,255,0.5)" }}
+            >
+              <Pencil size={20} color="#3f3f46" strokeWidth={2} />
+              <Text
+                className="text-base font-sf-display-semibold"
+                style={{ color: "#3f3f46" }}
+              >
+                Edit feed
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      </ActionSheet>
     </SafeAreaView>
   );
 }

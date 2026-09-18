@@ -1,15 +1,8 @@
-import {
-  BottomSheetBackdrop,
-  type BottomSheetBackdropProps,
-  BottomSheetModal,
-  BottomSheetView,
-} from "@gorhom/bottom-sheet";
 import { useFocusEffect } from "expo-router/react-navigation";
 import { Image } from "expo-image";
 import { ChevronDown, MoreVertical, Trash2 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   FlatList,
   Linking,
   Pressable,
@@ -26,8 +19,9 @@ import {
   type SelectSheetItem,
   type SelectSheetRef,
 } from "@/components/ui/select-sheet";
+import { ActionSheet, type ActionSheetRef } from "@/components/ui/action-sheet";
+import { GiftLoadingView } from "@/components/ui/gift-loader";
 import { Separator } from "@/components/ui/separator";
-import { SheetBackground } from "@/components/ui/sheet-background";
 import { Text } from "@/components/ui/text";
 import { useToast } from "@/components/ui/toast";
 import { getApiClient } from "@/lib/api";
@@ -145,7 +139,7 @@ export default function BookmarksScreen() {
   const [actionBusy, setActionBusy] = useState(false);
 
   const feedSheetRef = useRef<SelectSheetRef>(null);
-  const menuSheetRef = useRef<BottomSheetModal>(null);
+  const menuSheetRef = useRef<ActionSheetRef>(null);
   const hasItemsRef = useRef(false);
   const insets = useSafeAreaInsets();
 
@@ -157,18 +151,6 @@ export default function BookmarksScreen() {
     setMenuItem(item);
     menuSheetRef.current?.present();
   }, []);
-
-  const renderBackdrop = useCallback(
-    (props: BottomSheetBackdropProps) => (
-      <BottomSheetBackdrop
-        {...props}
-        disappearsOnIndex={-1}
-        appearsOnIndex={0}
-        opacity={0.5}
-      />
-    ),
-    [],
-  );
 
   const feedSelectItems: SelectSheetItem[] = useMemo(
     () => feeds.map((feed) => ({ id: feed.id, title: feed.name })),
@@ -307,10 +289,12 @@ export default function BookmarksScreen() {
 
       {loading ? (
         <View className="flex-1 items-center justify-center">
-          <ActivityIndicator color="#1f7a5c" />
-          <Text className="mt-3 text-slate-500" fontStyle="sf-display-light">
-            {switchingFeed ? "Switching feeds…" : "Loading saved items…"}
-          </Text>
+          <GiftLoadingView
+            title={switchingFeed ? "Switching feeds" : "Loading your saved gifts"}
+            subtitle={
+              switchingFeed ? "One moment." : "Gathering everything you’ve saved."
+            }
+          />
         </View>
       ) : error ? (
         <View className="px-4">
@@ -379,19 +363,11 @@ export default function BookmarksScreen() {
         onSelect={(item) => switchFeed(item.id)}
       />
 
-      <BottomSheetModal
-        ref={menuSheetRef}
-        enableDynamicSizing
-        enablePanDownToClose
-        topInset={insets.top}
-        backdropComponent={renderBackdrop}
-        backgroundComponent={SheetBackground}
-        handleIndicatorStyle={{ backgroundColor: "#ccc" }}
-      >
-        <BottomSheetView
+      <ActionSheet ref={menuSheetRef}>
+        <View
           style={{
             paddingHorizontal: 16,
-            paddingTop: 16,
+            paddingTop: 8,
             paddingBottom: 16 + insets.bottom,
           }}
         >
@@ -424,8 +400,8 @@ export default function BookmarksScreen() {
               Remove item
             </Text>
           </Pressable>
-        </BottomSheetView>
-      </BottomSheetModal>
+        </View>
+      </ActionSheet>
     </SafeAreaView>
   );
 }
