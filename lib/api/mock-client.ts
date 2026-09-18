@@ -559,6 +559,15 @@ export function createMockApiClient() {
       const set = (savedByProfile[targetProfileId] ??= new Set());
       const already = set.has(feedEventId);
       set.add(feedEventId);
+
+      const sourceItem = MOCK_FEED_ITEMS.find((i) => i.feed_event_id === feedEventId);
+      const hobbyId = sourceItem?.hobby_id;
+      const target = profiles.find((p) => p.id === targetProfileId);
+      if (hobbyId && target && !target.hobby_ids.includes(hobbyId) && target.hobby_ids.length < 8) {
+        target.hobby_ids = [...target.hobby_ids, hobbyId];
+        target.updated_at = new Date().toISOString();
+      }
+
       return delay({ ok: true, already_saved: already, feed_event_id: feedEventId });
     },
 

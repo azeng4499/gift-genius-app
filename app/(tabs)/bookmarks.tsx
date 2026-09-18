@@ -1,6 +1,6 @@
 import { useFocusEffect } from "expo-router/react-navigation";
 import { Image } from "expo-image";
-import { ChevronDown, MoreVertical, Trash2 } from "lucide-react-native";
+import { ChevronDown, Copy, MoreVertical, Trash2 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   FlatList,
@@ -27,6 +27,7 @@ import { useToast } from "@/components/ui/toast";
 import { getApiClient } from "@/lib/api";
 import {
   getCachedProfiles,
+  invalidateProfileCache,
   loadProfilesForUser,
   startSessionForProfile,
 } from "@/lib/api/bootstrap";
@@ -140,6 +141,8 @@ export default function BookmarksScreen() {
 
   const feedSheetRef = useRef<SelectSheetRef>(null);
   const menuSheetRef = useRef<ActionSheetRef>(null);
+  const copySheetRef = useRef<SelectSheetRef>(null);
+  const pendingCopyPickerRef = useRef(false);
   const hasItemsRef = useRef(false);
   const insets = useSafeAreaInsets();
 
@@ -156,6 +159,26 @@ export default function BookmarksScreen() {
     () => feeds.map((feed) => ({ id: feed.id, title: feed.name })),
     [feeds],
   );
+
+  const copyDestinations: SelectSheetItem[] = useMemo(
+    () =>
+      feeds
+        .filter((feed) => feed.id !== selectedFeedId)
+        .map((feed) => ({ id: feed.id, title: feed.name })),
+    [feeds, selectedFeedId],
+  );
+
+  const onMenuDismiss = useCallback(() => {
+    if (!pendingCopyPickerRef.current) return;
+    pendingCopyPickerRef.current = false;
+    copySheetRef.current?.present();
+  }, []);
+
+  const openCopyPicker = useCallback(() => {
+    if (actionBusy || copyDestinations.length === 0) return;
+    pendingCopyPickerRef.current = true;
+    menuSheetRef.current?.dismiss();
+  }, [actionBusy, copyDestinations.length]);
 
   const loadSavedItems = useCallback(
     async (isRefresh = false, profileIdOverride?: string) => {
@@ -235,6 +258,42 @@ export default function BookmarksScreen() {
       }
     },
     [api, feeds, loadSavedItems, selectedFeedId, switchingFeed, toast],
+  );
+
+  const handleCopy = useCallback(
+    async (destination: SelectSheetItem) => {
+      copySheetRef.current?.dismiss();
+      if (!selectedFeedId || !menuItem || actionBusy) return;
+
+      const giftTitle = menuItem.title;
+      setActionBusy(true);
+      try {
+        const result = await api.copySavedItem(
+          selectedFeedId,
+          menuItem.id,
+          destination.id,
+        );
+        invalidateProfileCache();
+        toast.show({
+          message: result.already_saved
+            ? `Already saved for ${destination.title}`
+            : `Copied to ${destination.title}`,
+          variant: "success",
+        });
+      } catch (err) {
+        toast.show({
+          message:
+            err instanceof Error
+              ? err.message
+              : `Couldn’t copy ${giftTitle}.`,
+          variant: "error",
+        });
+      } finally {
+        setActionBusy(false);
+        setMenuItem(null);
+      }
+    },
+    [actionBusy, api, menuItem, selectedFeedId, toast],
   );
 
   const handleRemove = useCallback(async () => {
@@ -363,7 +422,7 @@ export default function BookmarksScreen() {
         onSelect={(item) => switchFeed(item.id)}
       />
 
-      <ActionSheet ref={menuSheetRef}>
+      <ActionSheet ref={menuSheetRef} onDismiss={onMenuDismiss}>
         <View
           style={{
             paddingHorizontal: 16,
@@ -383,25 +442,51 @@ export default function BookmarksScreen() {
               className="px-1 pb-6 pt-1 text-left"
               fontStyle="sf-display-light"
             >
-              Remove this gift from your saved list.
+              Copy to another feed or remove from this list.
             </Text>
           </View>
 
-          <Pressable
-            onPress={handleRemove}
-            className="flex-row items-center gap-3 rounded-2xl px-4 py-3.5"
-            style={{ backgroundColor: "rgba(255,255,255,0.5)" }}
-          >
-            <Trash2 size={20} color="#dc2626" strokeWidth={2} />
-            <Text
-              className="text-base font-sf-display-semibold"
-              style={{ color: "#dc2626" }}
+          <View className="gap-2.5">
+            {copyDestinations.length > 0 ? (
+              <Pressable
+                onPress={openCopyPicker}
+                className="flex-row items-center gap-3 rounded-2xl px-4 py-3.5"
+                style={{ backgroundColor: "rgba(255,255,255,0.5)" }}
+              >
+                <Copy size={20} color="#3f3f46" strokeWidth={2} />
+                <Text
+                  className="text-base font-sf-display-semibold"
+                  style={{ color: "#3f3f46" }}
+                >
+                  Copy to another feed
+                </Text>
+              </Pressable>
+            ) : null}
+
+            <Pressable
+              onPress={handleRemove}
+              className="flex-row items-center gap-3 rounded-2xl px-4 py-3.5"
+              style={{ backgroundColor: "rgba(255,255,255,0.5)" }}
             >
-              Remove item
-            </Text>
-          </Pressable>
+              <Trash2 size={20} color="#dc2626" strokeWidth={2} />
+              <Text
+                className="text-base font-sf-display-semibold"
+                style={{ color: "#dc2626" }}
+              >
+                Remove item
+              </Text>
+            </Pressable>
+          </View>
         </View>
       </ActionSheet>
+
+      <SelectSheet
+        ref={copySheetRef}
+        heading="Copy to…"
+        subheading="The gift stays saved here too."
+        data={copyDestinations}
+        onSelect={handleCopy}
+      />
     </SafeAreaView>
   );
 }
