@@ -51,17 +51,11 @@ export function getCachedProfiles(backendUserId: string): FeedDto[] | null {
   return profileCache.feeds;
 }
 
-async function rememberProfileIds(
-  backendUserId: string,
-  rows: ProfileDto[],
-): Promise<void> {
-  await Promise.all(rows.map((row) => addStoredProfileId(backendUserId, row.id)));
-}
-
-async function feedsFromList(api: ApiClient, rows: ProfileDto[]): Promise<FeedDto[]> {
-  const catalog = await ensureHobbyCatalog(api).catch(() => []);
-  const hobbyNameById = new Map(catalog.map((h) => [h.id, h.name]));
-  return rows.map((row) => profileDtoToFeedDto(row, hobbyNameById));
+function rememberProfileIds(backendUserId: string, rows: ProfileDto[]): void {
+  // A local fallback list, not something the screen waits on.
+  void Promise.all(
+    rows.map((row) => addStoredProfileId(backendUserId, row.id)),
+  ).catch(() => {});
 }
 
 async function feedsFromStoredIds(
@@ -78,10 +72,20 @@ async function fetchProfilesFromServer(
   api: ApiClient,
   backendUserId: string,
 ): Promise<FeedDto[]> {
+  // Started alongside the profile list rather than after it. The catalog only
+  // supplies display names for the feeds, so waiting for the list first made it
+  // a second serial round trip in front of the first card.
+  const catalog = ensureHobbyCatalog(api).catch(() => []);
+
   try {
     const rows = await api.listProfiles();
-    await rememberProfileIds(backendUserId, rows);
-    if (rows.length > 0) return feedsFromList(api, rows);
+    rememberProfileIds(backendUserId, rows);
+    if (rows.length > 0) {
+      const hobbyNameById = new Map(
+        (await catalog).map((h) => [h.id, h.name] as const),
+      );
+      return rows.map((row) => profileDtoToFeedDto(row, hobbyNameById));
+    }
   } catch {
     /* fall through to locally stored ids */
   }

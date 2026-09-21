@@ -56,6 +56,18 @@ import {
 import { peekQueuedFeedSwitch, takeQueuedFeedSwitch } from "@/lib/state/pending-feed-switch";
 import { endTimeline, mark, startTimeline } from "@/lib/diag";
 
+// A full batch. What the feed settles at, and what every load after the first
+// asks for.
+const FEED_BATCH_SIZE = Number(process.env.EXPO_PUBLIC_FEED_BATCH_SIZE ?? 10);
+
+// The first batch after a switch or cold open. Deliberately small: the engine
+// stops searching as soon as it can fill the request, so asking for fewer cards
+// gets the first one on screen a whole Canopy round trip sooner. The rest is
+// topped up in the background while the user reads.
+const FEED_FIRST_BATCH_SIZE = Number(
+  process.env.EXPO_PUBLIC_FEED_FIRST_BATCH_SIZE ?? 4,
+);
+
 // Re-tapping an already-applied action undoes it. Message shown on undo.
 const UNDO_MESSAGE: Record<AppliedInteraction, string> = {
   save: "Removed from your list",
@@ -240,7 +252,7 @@ export default function SwipeScreen() {
     return result;
   }, [api, user]);
 
-  const loadMoreFeedItems = useCallback(async () => {
+  const loadMoreFeedItems = useCallback(async (size = FEED_BATCH_SIZE) => {
     const sessionId = getCurrentSessionId();
     if (!sessionId) {
       throw new Error("Your feed isn’t ready yet. Pull down to refresh.");
@@ -248,10 +260,10 @@ export default function SwipeScreen() {
 
     const epoch = feedEpochRef.current;
     const requestId = ++feedLoadSeqRef.current;
-    logLoad("batch_request_start", { requestId, requestedSessionId: sessionId });
+    logLoad("batch_request_start", { requestId, requestedSessionId: sessionId, size });
     setFeedLoading(true);
     try {
-      const batch = await api.getFeedBatch(sessionId, 10);
+      const batch = await api.getFeedBatch(sessionId, size);
       if (epoch !== feedEpochRef.current) {
         // A newer load replaced us while this was in flight. Its items are the
         // ones on screen, so this response is dropped rather than appended.
@@ -292,6 +304,28 @@ export default function SwipeScreen() {
       if (epoch === feedEpochRef.current) setFeedLoading(false);
     }
   }, [api, logFeedEvent, logLoad]);
+
+  // Fill the feed out to a normal batch after the first few cards are on screen,
+  // so the short first batch doesn't turn into a wait at card four. Silent by
+  // design: the user is already reading, and a failure here just means the
+  // scroll-triggered load picks it up.
+  const topUpFeedInBackground = useCallback(
+    (epoch: number) => {
+      if (feedItemsRef.current.length >= FEED_BATCH_SIZE) return;
+      void (async () => {
+        if (epoch !== feedEpochRef.current) return;
+        try {
+          const { count } = await loadMoreFeedItems(FEED_BATCH_SIZE);
+          logLoad("background_top_up", { added: count });
+        } catch (error) {
+          logLoad("background_top_up_failed", {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      })();
+    },
+    [loadMoreFeedItems, logLoad],
+  );
 
   // Runs a feed load behind the "loading" overlay, and flips to the error overlay
   // if the load throws. The overlay is held for a short minimum so it reads as a
@@ -346,7 +380,9 @@ export default function SwipeScreen() {
       if (token !== pollTokenRef.current) return;
       attempt += 1;
       try {
-        const { count, preparing } = await loadMoreFeedItems();
+        // Same reasoning as the first load: ask for the few cards needed to start
+        // reading, not a full batch the engine has to keep searching for.
+        const { count, preparing } = await loadMoreFeedItems(FEED_FIRST_BATCH_SIZE);
         if (token !== pollTokenRef.current) return;
         if (count > 0) {
           mark(`poll attempt ${attempt}: got items`, {
@@ -354,6 +390,7 @@ export default function SwipeScreen() {
           });
           setFeedPreparing(false);
           endTimeline("cards ready after polling", { attempts: attempt, items: count });
+          topUpFeedInBackground(feedEpochRef.current);
           return;
         }
         // Backend finished computing but there's nothing to show.
@@ -384,7 +421,7 @@ export default function SwipeScreen() {
 
     mark(`polling started, first attempt in ${FIRST_DELAY_MS}ms`);
     setTimeout(tick, FIRST_DELAY_MS);
-  }, [loadMoreFeedItems]);
+  }, [loadMoreFeedItems, topUpFeedInBackground]);
 
   useEffect(() => stopFeedPolling, [stopFeedPolling]);
 
@@ -418,7 +455,10 @@ export default function SwipeScreen() {
     };
 
     try {
-      const { count, preparing } = await loadMoreFeedItems();
+      // A first batch of ten waits for the engine to find ten fillable cards,
+      // which on a cold feed is a second round of Canopy searches. Asking for a
+      // few gets the user reading sooner; the rest is topped up behind them.
+      const { count, preparing } = await loadMoreFeedItems(FEED_FIRST_BATCH_SIZE);
       if (epoch !== feedEpochRef.current) {
         releaseLoad("superseded", { items: count });
         return;
@@ -426,6 +466,7 @@ export default function SwipeScreen() {
       if (count > 0) {
         setFeedPreparing(false);
         endTimeline("cards ready", { items: count });
+        topUpFeedInBackground(epoch);
       } else if (preparing) {
         // Empty but still being computed for the first time — poll until items
         // arrive instead of dead-ending on an empty state.
@@ -455,7 +496,13 @@ export default function SwipeScreen() {
       }
       throw error;
     }
-  }, [loadMoreFeedItems, logLoad, startFeedPolling, stopFeedPolling]);
+  }, [
+    loadMoreFeedItems,
+    logLoad,
+    startFeedPolling,
+    stopFeedPolling,
+    topUpFeedInBackground,
+  ]);
 
   const restorePreviousFeed = useCallback(() => {
     const snapshot = previousFeedRef.current;
