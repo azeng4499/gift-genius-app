@@ -7,6 +7,8 @@
  * POST /feed/signal.
  */
 
+import { logRequest } from "@/lib/diag";
+
 export type ApiErrorCode =
   | "BAD_REQUEST"
   | "UNAUTHORIZED"
@@ -179,6 +181,23 @@ type ApiClientConfig = {
   onUnauthorized?: () => void;
 };
 
+/** Server-side latency breakdown, present while FEED_DIAG is on in the engine. */
+export type ServerDiag = {
+  name: string;
+  total_ms: number;
+  phases: { label: string; ms: number }[];
+  external: { target: string; calls: number; total_ms: number; max_ms: number }[];
+  counters: Record<string, number>;
+  notes: Record<string, unknown>;
+};
+
+export type FeedBatchResponse = {
+  items: FeedItemDto[];
+  count: number;
+  preparing?: boolean;
+  diag?: ServerDiag;
+};
+
 function statusToCode(status: number): ApiErrorCode {
   if (status === 400) return "BAD_REQUEST";
   if (status === 401) return "UNAUTHORIZED";
@@ -234,6 +253,7 @@ export function createGiftGeniusApiClient(config: ApiClientConfig) {
           ? setTimeout(() => controller.abort(), timeoutMs)
           : null;
 
+      const startedAt = Date.now();
       try {
         const res = await fetch(`${normalizedBase}${path}`, {
           method,
@@ -244,6 +264,13 @@ export function createGiftGeniusApiClient(config: ApiClientConfig) {
 
         const text = await res.text();
         const payload = text ? safeJsonParse(text) : null;
+
+        // `diag.total_ms` is the server's own measurement of the same call, so
+        // the remainder is network, TLS and JSON handling on this side.
+        logRequest(method, path, Date.now() - startedAt, {
+          status: res.status,
+          serverMs: payload?.diag?.total_ms ?? null,
+        });
 
         if (!res.ok) {
           const message =
@@ -263,6 +290,11 @@ export function createGiftGeniusApiClient(config: ApiClientConfig) {
         return payload as T;
       } catch (err) {
         lastErr = err;
+        if (!(err instanceof ApiError)) {
+          logRequest(method, path, Date.now() - startedAt, {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
         const isAbort =
           err instanceof Error &&
           (err.name === "AbortError" || err.message.includes("aborted"));
@@ -427,8 +459,8 @@ export function createGiftGeniusApiClient(config: ApiClientConfig) {
     async getFeedBatch(
       sessionId: string,
       batch = 10
-    ): Promise<{ items: FeedItemDto[]; count: number; preparing?: boolean }> {
-      return request<{ items: FeedItemDto[]; count: number; preparing?: boolean }>(
+    ): Promise<FeedBatchResponse> {
+      return request<FeedBatchResponse>(
         `/feed/${encodeURIComponent(sessionId)}?batch=${encodeURIComponent(String(batch))}`,
         { requiresAuth: true, retries: 0, timeoutMs: 120_000 }
       );

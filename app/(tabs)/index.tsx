@@ -54,6 +54,7 @@ import {
   setCurrentSession,
 } from "@/lib/state/user-context";
 import { peekQueuedFeedSwitch, takeQueuedFeedSwitch } from "@/lib/state/pending-feed-switch";
+import { endTimeline, mark, startTimeline } from "@/lib/diag";
 
 // Re-tapping an already-applied action undoes it. Message shown on undo.
 const UNDO_MESSAGE: Record<AppliedInteraction, string> = {
@@ -140,6 +141,18 @@ export default function SwipeScreen() {
   const feedEpochRef = useRef(0);
   const switchGenerationRef = useRef(0);
   const switchSourceRef = useRef<"people" | "home" | "focus">("home");
+  // Which feed a switch is currently heading to, so a repeat request for the
+  // same one can be ignored instead of starting a second competing switch.
+  const switchTargetRef = useRef<string | null>(null);
+  // Every feed load gets an id and each stage of its life is logged with the
+  // epoch and generation it belongs to. Overlapping loads are what strand this
+  // screen, and they are indistinguishable in the log without these.
+  const feedLoadSeqRef = useRef(0);
+  const inFlightLoadsRef = useRef<Set<number>>(new Set());
+  // Guards the post-create refresh so it runs once per navigation, not once per
+  // render of an effect whose callback deps change identity.
+  const handledRefreshKeyRef = useRef<string | null>(null);
+  const handledRefreshFeedKeyRef = useRef<string | null>(null);
   const previousFeedRef = useRef<{
     profileId: string | null;
     sessionId: string | null;
@@ -161,6 +174,22 @@ export default function SwipeScreen() {
   const api = useMemo(() => getApiClient(), []);
   const toast = useToast();
   const navigation = useNavigation();
+
+  const logLoad = useCallback(
+    (event: string, details: Record<string, unknown> = {}) => {
+      console.log("[FeedLoad]", event, {
+        ...details,
+        epoch: feedEpochRef.current,
+        switchGeneration: switchGenerationRef.current,
+        switchTarget: switchTargetRef.current,
+        inFlightLoads: [...inFlightLoadsRef.current],
+        loadedProfileId: loadedProfileIdRef.current,
+        sessionId: getCurrentSessionId(),
+        feedId: getCurrentFeedId(),
+      });
+    },
+    [],
+  );
 
   // Instagram-style: tapping the Home tab while already on it jumps back to the
   // top of the feed rather than re-navigating.
@@ -218,16 +247,39 @@ export default function SwipeScreen() {
     }
 
     const epoch = feedEpochRef.current;
+    const requestId = ++feedLoadSeqRef.current;
+    logLoad("batch_request_start", { requestId, requestedSessionId: sessionId });
     setFeedLoading(true);
     try {
       const batch = await api.getFeedBatch(sessionId, 10);
       if (epoch !== feedEpochRef.current) {
+        // A newer load replaced us while this was in flight. Its items are the
+        // ones on screen, so this response is dropped rather than appended.
+        logLoad("batch_discarded_stale", {
+          requestId,
+          requestedSessionId: sessionId,
+          startedAtEpoch: epoch,
+          items: batch.items.length,
+        });
         return { count: 0, preparing: false };
       }
       const mapped = batch.items.map(feedItemToQueueItem);
       logFeedEvent("load_feed_batch", {
         sessionId,
         count: mapped.length,
+      });
+      mark("GET /feed returned", {
+        items: mapped.length,
+        preparing: batch.preparing ?? false,
+        serverMs: batch.diag?.total_ms,
+        // Where the server spent it, so client and server views sit together.
+        serverPhases: batch.diag?.phases
+          ?.map((p) => `${p.label} ${p.ms}ms`)
+          .join(", "),
+        serverExternal: batch.diag?.external
+          ?.map((e) => `${e.target} ×${e.calls} ${e.total_ms}ms`)
+          .join(", "),
+        serverCounters: batch.diag?.counters,
       });
       setFeedItems((prev) => {
         if (epoch !== feedEpochRef.current) return prev;
@@ -239,19 +291,30 @@ export default function SwipeScreen() {
     } finally {
       if (epoch === feedEpochRef.current) setFeedLoading(false);
     }
-  }, [api, logFeedEvent]);
+  }, [api, logFeedEvent, logLoad]);
 
-  // Runs a feed load behind the "loading" overlay, keeping it up for a fixed
-  // 5s (placeholder for now), and flips to the error overlay if the load throws.
+  // Runs a feed load behind the "loading" overlay, and flips to the error overlay
+  // if the load throws. The overlay is held for a short minimum so it reads as a
+  // deliberate transition rather than a flicker; it used to be 5s, which made
+  // every load feel that slow no matter how fast the batch actually arrived.
+  // Tune with EXPO_PUBLIC_FEED_LOADING_MS.
   const runFeedLoad = useCallback(async (task: () => Promise<void>) => {
-    const FEED_LOADING_MS = 5000;
+    const FEED_LOADING_MS = Number(
+      process.env.EXPO_PUBLIC_FEED_LOADING_MS ?? 600,
+    );
     setFeedError(null);
     setFeedStatus("loading");
     const startedAt = Date.now();
     try {
       await task();
-      const remaining = FEED_LOADING_MS - (Date.now() - startedAt);
+      const taskMs = Date.now() - startedAt;
+      const remaining = FEED_LOADING_MS - taskMs;
       if (remaining > 0) {
+        mark("artificial loading-overlay padding", {
+          actualLoadMs: taskMs,
+          paddedByMs: remaining,
+          floorMs: FEED_LOADING_MS,
+        });
         await new Promise((resolve) => setTimeout(resolve, remaining));
       }
       setFeedStatus("ready");
@@ -271,51 +334,98 @@ export default function SwipeScreen() {
     const token = ++pollTokenRef.current;
     const startedAt = Date.now();
     const MAX_WAIT_MS = 3 * 60 * 1000;
-    const INTERVAL_MS = 4000;
+    // Poll quickly at first, then ease off. The backend prepares a new feed in
+    // waves, so the first items often exist well before a fixed 4s tick would
+    // have asked; the backoff keeps a long wait from hammering the API.
+    const FIRST_DELAY_MS = 500;
+    const MAX_INTERVAL_MS = 4000;
+    let intervalMs = 1000;
+    let attempt = 0;
 
     const tick = async () => {
       if (token !== pollTokenRef.current) return;
+      attempt += 1;
       try {
         const { count, preparing } = await loadMoreFeedItems();
         if (token !== pollTokenRef.current) return;
         if (count > 0) {
+          mark(`poll attempt ${attempt}: got items`, {
+            waitedMs: Date.now() - startedAt,
+          });
           setFeedPreparing(false);
+          endTimeline("cards ready after polling", { attempts: attempt, items: count });
           return;
         }
         // Backend finished computing but there's nothing to show.
         if (!preparing) {
+          mark(`poll attempt ${attempt}: backend done, feed empty`, {
+            waitedMs: Date.now() - startedAt,
+          });
           setFeedPreparing(false);
+          endTimeline("empty feed after polling", { attempts: attempt });
           return;
         }
+        mark(`poll attempt ${attempt}: still preparing, waiting ${intervalMs}ms`);
       } catch {
         if (token !== pollTokenRef.current) return;
+        mark(`poll attempt ${attempt}: failed, retrying in ${intervalMs}ms`);
         // Transient error — keep retrying until the max wait.
       }
       if (Date.now() - startedAt > MAX_WAIT_MS) {
+        mark("polling gave up at max wait", { waitedMs: Date.now() - startedAt });
         setFeedPreparing(false);
+        endTimeline("gave up", { attempts: attempt });
         return;
       }
-      setTimeout(tick, INTERVAL_MS);
+      const delay = intervalMs;
+      intervalMs = Math.min(Math.round(intervalMs * 1.5), MAX_INTERVAL_MS);
+      setTimeout(tick, delay);
     };
 
-    setTimeout(tick, INTERVAL_MS);
+    mark(`polling started, first attempt in ${FIRST_DELAY_MS}ms`);
+    setTimeout(tick, FIRST_DELAY_MS);
   }, [loadMoreFeedItems]);
 
   useEffect(() => stopFeedPolling, [stopFeedPolling]);
 
   const resetAndLoadFeedCards = useCallback(async (): Promise<void> => {
     const epoch = feedEpochRef.current;
+    const loadId = ++feedLoadSeqRef.current;
+    inFlightLoadsRef.current.add(loadId);
+    logLoad("load_start", { loadId, clearedCards: true });
+
     stopFeedPolling();
     setFeedItems([]);
     setCurrentCardIndex(0);
     interactedItemIdsRef.current.clear();
     setInteractionByItemId({});
     setFeedPreparing(true);
+
+    // This load emptied the screen and turned the spinner on, so it has to leave
+    // one of those two undone. Bailing out silently is what left the feed
+    // spinning forever with no card and no pending request.
+    const releaseLoad = (outcome: string, details: Record<string, unknown> = {}) => {
+      inFlightLoadsRef.current.delete(loadId);
+      const superseded = epoch !== feedEpochRef.current;
+      const abandoned = superseded && inFlightLoadsRef.current.size === 0;
+      logLoad(`load_${outcome}`, { loadId, superseded, abandoned, ...details });
+      if (abandoned) {
+        // Superseded, but whatever replaced us is no longer running either, so
+        // nobody is going to fill the screen we just cleared.
+        setFeedPreparing(false);
+        endTimeline("abandoned load recovered", { loadId });
+      }
+    };
+
     try {
       const { count, preparing } = await loadMoreFeedItems();
-      if (epoch !== feedEpochRef.current) return;
+      if (epoch !== feedEpochRef.current) {
+        releaseLoad("superseded", { items: count });
+        return;
+      }
       if (count > 0) {
         setFeedPreparing(false);
+        endTimeline("cards ready", { items: count });
       } else if (preparing) {
         // Empty but still being computed for the first time — poll until items
         // arrive instead of dead-ending on an empty state.
@@ -323,22 +433,38 @@ export default function SwipeScreen() {
       } else {
         // Genuinely empty feed.
         setFeedPreparing(false);
+        endTimeline("empty feed");
       }
       loadedProfileIdRef.current = getCurrentFeedId();
+      releaseLoad("done", { items: count, preparing });
     } catch (error) {
-      if (epoch !== feedEpochRef.current) return;
+      if (epoch !== feedEpochRef.current) {
+        releaseLoad("superseded_after_error", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return;
+      }
       setFeedPreparing(false);
+      endTimeline("failed");
+      releaseLoad("failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
       if (isFeedQueueEmptyError(error)) {
         loadedProfileIdRef.current = getCurrentFeedId();
         return;
       }
       throw error;
     }
-  }, [loadMoreFeedItems, startFeedPolling, stopFeedPolling]);
+  }, [loadMoreFeedItems, logLoad, startFeedPolling, stopFeedPolling]);
 
   const restorePreviousFeed = useCallback(() => {
     const snapshot = previousFeedRef.current;
     if (!snapshot) return;
+    logLoad("restore_previous_feed", {
+      restoringProfileId: snapshot.profileId,
+      restoringSessionId: snapshot.sessionId,
+      restoringItems: snapshot.items.length,
+    });
     setCurrentProfile(snapshot.profileId);
     setCurrentSession(snapshot.sessionId);
     setFeedItems(snapshot.items);
@@ -349,7 +475,7 @@ export default function SwipeScreen() {
     setFeedPreparing(snapshot.items.length === 0);
     setFeedStatus("ready");
     setFeedError(null);
-  }, []);
+  }, [logLoad]);
 
   const switchToFeed = useCallback(
     async (
@@ -362,7 +488,17 @@ export default function SwipeScreen() {
         return;
       }
 
+      // Already on our way to this same feed. Several triggers can ask for the
+      // same switch (post-create redirect, focus effect, the switcher sheet),
+      // and starting a second one just races two sessions against each other.
+      if (feedSwitchingRef.current && switchTargetRef.current === feed.id) {
+        logLoad("switch_ignored_duplicate", { feedId: feed.id, source });
+        bottomSheetRef.current?.dismiss();
+        return;
+      }
+
       const generation = ++switchGenerationRef.current;
+      switchTargetRef.current = feed.id;
       feedEpochRef.current += 1;
       switchSourceRef.current = source;
       previousFeedRef.current = {
@@ -380,10 +516,20 @@ export default function SwipeScreen() {
       setActiveFeedName(feed.name);
       setFeedSwitching(true);
       bottomSheetRef.current?.dismiss();
+      startTimeline("switch feed → first card", { feed: feed.name, source });
+      logLoad("switch_start", { generation, feedId: feed.id, feedName: feed.name, source });
 
       try {
         const session = await api.createSession(feed.id);
-        if (generation !== switchGenerationRef.current) return;
+        mark("POST /sessions returned");
+        if (generation !== switchGenerationRef.current) {
+          logLoad("switch_superseded_before_load", {
+            generation,
+            attemptedFeedId: feed.id,
+            discardedSessionId: session.id,
+          });
+          return;
+        }
         setCurrentSession(session.id);
         setCurrentProfile(feed.id);
         logFeedEvent("feed_switch", {
@@ -392,7 +538,14 @@ export default function SwipeScreen() {
         });
         await resetAndLoadFeedCards();
         if (generation !== switchGenerationRef.current) {
-          restorePreviousFeed();
+          // A newer switch owns the screen now. Restoring our snapshot here
+          // would overwrite its freshly loaded cards with whatever was showing
+          // before us — and when that snapshot is empty (a fresh mount), it
+          // blanks the feed and leaves it preparing with nothing in flight.
+          logLoad("switch_superseded_discarded", {
+            generation,
+            attemptedFeedId: feed.id,
+          });
           return;
         }
         loadedProfileIdRef.current = feed.id;
@@ -410,10 +563,11 @@ export default function SwipeScreen() {
         if (generation === switchGenerationRef.current) {
           feedSwitchingRef.current = false;
           setFeedSwitching(false);
+          switchTargetRef.current = null;
         }
       }
     },
-    [api, logFeedEvent, resetAndLoadFeedCards, restorePreviousFeed, toast],
+    [api, logFeedEvent, logLoad, resetAndLoadFeedCards, restorePreviousFeed, toast],
   );
 
   // Feed rows for the switcher sheet: title is the feed name, subtitle a
@@ -457,6 +611,13 @@ export default function SwipeScreen() {
       return;
     }
 
+    // Run once per refreshKey. `switchToFeed` and `toast` change identity on
+    // render, so without this the effect re-fires with unchanged params and
+    // starts a second switch to the same feed.
+    const handledKey = `${params.refreshKey}:${selectedProfileId}`;
+    if (handledRefreshKeyRef.current === handledKey) return;
+    handledRefreshKeyRef.current = handledKey;
+
     const refreshAfterCreate = async () => {
       const userId = getCurrentUserId();
       if (!userId) return;
@@ -481,6 +642,9 @@ export default function SwipeScreen() {
   // Reload feed after interest changes in feed settings.
   useEffect(() => {
     if (!params.refreshFeedKey) return;
+    // Once per key, for the same reason as the post-create refresh above.
+    if (handledRefreshFeedKeyRef.current === params.refreshFeedKey) return;
+    handledRefreshFeedKeyRef.current = params.refreshFeedKey;
 
     let cancelled = false;
     (async () => {
@@ -650,6 +814,7 @@ export default function SwipeScreen() {
     let cancelled = false;
     let redirecting = false;
     setBootstrapping(true);
+    startTimeline("cold open → first card", { clerkUserId: user.id });
 
     (async () => {
       try {
@@ -693,6 +858,7 @@ export default function SwipeScreen() {
   const onRefresh = useCallback(() => {
     const refresh = async () => {
       setRefreshing(true);
+      startTimeline("pull-to-refresh → first card");
       try {
         await runFeedLoad(async () => {
           const result = await bootstrapUserAndFeed();

@@ -10,6 +10,7 @@ import {
   setCurrentSession,
   setCurrentUser,
 } from "@/lib/state/user-context";
+import { timed } from "@/lib/diag";
 
 type ClerkUserLike = {
   id: string;
@@ -139,13 +140,19 @@ export async function bootstrapFromClerkUser(
   api: ApiClient,
   clerkUser: ClerkUserLike
 ): Promise<BootstrapResult> {
-  const { user } = await api.syncUser({
-    name: clerkUser.fullName ?? undefined,
-    email: clerkUser.primaryEmailAddress?.emailAddress ?? undefined,
-  });
+  // Each await here is a separate round trip that blocks the first card, so they
+  // are timed individually rather than as one "bootstrap" number.
+  const { user } = await timed("auth/sync", () =>
+    api.syncUser({
+      name: clerkUser.fullName ?? undefined,
+      email: clerkUser.primaryEmailAddress?.emailAddress ?? undefined,
+    }),
+  );
   setCurrentUser(user.id);
 
-  const profiles = await loadProfilesForUser(api, user.id, { force: true });
+  const profiles = await timed("list profiles (+ hobby catalog)", () =>
+    loadProfilesForUser(api, user.id, { force: true }),
+  );
 
   if (profiles.length === 0) {
     setCurrentProfile(null);
@@ -156,7 +163,9 @@ export async function bootstrapFromClerkUser(
   const activeProfile = profiles[0];
   setCurrentProfile(activeProfile.id);
 
-  const session = await api.createSession(activeProfile.id);
+  const session = await timed("create session", () =>
+    api.createSession(activeProfile.id),
+  );
   setCurrentSession(session.id);
 
   return {
