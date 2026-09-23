@@ -19,6 +19,7 @@ import { ThemedView } from "@/components/themed-view";
 import { ChevronDown, Pencil, Plus, Ellipsis } from "lucide-react-native";
 
 import ProductCard from "@/components/product-card/product-card";
+import { LogoMark } from "@/components/ui/logo";
 import {
   SettingUpScreen,
   SwitchingFeedScreen,
@@ -1158,7 +1159,7 @@ export default function SwipeScreen() {
       <ThemedView className="w-full h-full bg-white">
         <View className="w-full flex-row items-center px-4 pb-4 pt-2 border-b border-zinc-200">
           <View className="flex-1 flex-row justify-start">
-            <Text>Logo</Text>
+            <LogoMark size={32} />
           </View>
           <Pressable
             className="flex shrink flex-row justify-center items-center gap-2"

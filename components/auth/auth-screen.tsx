@@ -20,6 +20,7 @@ import BottomSheet, {
   BottomSheetView,
 } from "@gorhom/bottom-sheet";
 import { SheetBackground } from "@/components/ui/sheet-background";
+import { LogoFull } from "@/components/ui/logo";
 import { CtaButton } from "@/components/ui/cta-button";
 import { TermsNotice } from "@/components/ui/terms-notice";
 import {
@@ -89,7 +90,13 @@ export function AuthScreen() {
           className="flex-1"
           behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
-          <View className="h-full flex justify-end pb-8">
+          <View className="h-full flex flex-col pb-8">
+            <View
+              className="flex-1 items-center justify-center px-8"
+              pointerEvents="none"
+            >
+              <LogoFull width={230} />
+            </View>
             <View className="flex justify-center items-center gap-4 px-6">
               <CtaButton label="Sign in with Password" onPress={openSignIn} />
               <View className="flex-row items-center">
