@@ -204,10 +204,12 @@ export default function SwipeScreen() {
     [],
   );
 
-  // Instagram-style: tapping the Home tab while already on it jumps back to the
-  // top of the feed rather than re-navigating.
+  // Instagram-style: a second tap on Home while already there jumps back to the
+  // top. tabPress also fires when arriving from another tab (Saved, People),
+  // and that used to reset the feed even though the user was just coming back.
   useEffect(() => {
     const unsubscribe = navigation.addListener("tabPress" as never, () => {
+      if (!navigation.isFocused()) return;
       if (feedItems.length > 0 && feedHeight > 0) {
         feedListRef.current?.scrollToIndex({ index: 0, animated: true });
         setCurrentCardIndex(0);
@@ -1096,6 +1098,20 @@ export default function SwipeScreen() {
     logFeedEvent,
   ]);
 
+  // The paging list can land on card 0 after its viewport is hidden (another
+  // tab, a 0-height layout pass). Put the user back on the card they left.
+  useFocusEffect(
+    useCallback(() => {
+      const index = feedViewRef.current.index;
+      if (index <= 0 || feedHeight <= 0) return;
+      if (index >= feedItemsRef.current.length) return;
+      const frame = requestAnimationFrame(() => {
+        feedListRef.current?.scrollToIndex({ index, animated: false });
+      });
+      return () => cancelAnimationFrame(frame);
+    }, [feedHeight]),
+  );
+
   useFocusEffect(
     useCallback(() => {
       const userId = getCurrentUserId();
@@ -1193,7 +1209,12 @@ export default function SwipeScreen() {
         <View className="relative flex-1 px-2">
           <View
             className="w-full h-full"
-            onLayout={(e) => setFeedHeight(e.nativeEvent.layout.height)}
+            onLayout={(e) => {
+              const height = e.nativeEvent.layout.height;
+              // Hidden tabs often report 0. Collapsing item height would pin the
+              // list at the top the next time this screen is shown.
+              if (height > 0) setFeedHeight(height);
+            }}
           >
             <FlatList
               ref={feedListRef}
