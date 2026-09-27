@@ -142,6 +142,9 @@ export default function SwipeScreen() {
   const [pendingScrollIndex, setPendingScrollIndex] = useState<number | null>(
     null,
   );
+  // True only after this tab has been left, so a layout pass during load-more
+  // cannot be mistaken for "coming back" and pin the list on the old card.
+  const restoreIndexOnFocusRef = useRef(false);
   const feedListRef = useRef<FlatList<QueueItemDto>>(null);
   const interactedItemIdsRef = useRef<Set<string>>(new Set());
   const bootstrappedClerkUserIdRef = useRef<string | null>(null);
@@ -720,6 +723,12 @@ export default function SwipeScreen() {
     };
   }, [api, params.refreshFeedKey, resetAndLoadFeedCards, toast]);
 
+  const jumpToFeedIndex = useCallback((index: number) => {
+    if (index < 0 || index >= feedItemsRef.current.length) return;
+    setCurrentCardIndex(index);
+    setPendingScrollIndex(index);
+  }, []);
+
   const advanceToNextCard = useCallback(async () => {
     const isAtEnd = currentCardIndex >= feedItems.length - 1;
     if (isAtEnd) {
@@ -730,15 +739,12 @@ export default function SwipeScreen() {
         await loadMoreFeedItems();
       });
       if (feedItemsRef.current.length > firstNewIndex) {
-        setCurrentCardIndex(firstNewIndex);
-        setPendingScrollIndex(firstNewIndex);
+        jumpToFeedIndex(firstNewIndex);
       }
       return;
     }
-    const nextIndex = currentCardIndex + 1;
-    setCurrentCardIndex(nextIndex);
-    feedListRef.current?.scrollToIndex({ index: nextIndex, animated: true });
-  }, [currentCardIndex, feedItems.length, loadMoreFeedItems, runFeedLoad]);
+    jumpToFeedIndex(currentCardIndex + 1);
+  }, [currentCardIndex, feedItems.length, jumpToFeedIndex, loadMoreFeedItems, runFeedLoad]);
 
   const submitInteraction = useCallback(
     async (type: InteractionKind, opts?: { clear?: boolean }) => {
@@ -956,14 +962,16 @@ export default function SwipeScreen() {
         !feedLoading
       ) {
         const firstNewIndex = feedItemsRef.current.length;
-        runFeedLoad(async () => {
+        void runFeedLoad(async () => {
           await loadMoreFeedItems();
         }).then(() => {
+          // Land on the first newly loaded card, not the one the user overscrolled
+          // from. Returning to that old index is what felt like "left off on".
           if (feedItemsRef.current.length > firstNewIndex) {
-            setCurrentCardIndex(firstNewIndex);
-            setPendingScrollIndex(firstNewIndex);
+            jumpToFeedIndex(firstNewIndex);
           }
         });
+        return;
       }
 
       if (nextIndex > previousIndex) {
@@ -1012,6 +1020,7 @@ export default function SwipeScreen() {
       feedHeight,
       feedItems,
       feedLoading,
+      jumpToFeedIndex,
       loadMoreFeedItems,
       logFeedEvent,
       runFeedLoad,
@@ -1069,15 +1078,17 @@ export default function SwipeScreen() {
   useEffect(() => {
     if (pendingScrollIndex == null) return;
     if (pendingScrollIndex >= feedItems.length) return;
+    if (feedHeight <= 0) return;
 
+    const index = pendingScrollIndex;
     requestAnimationFrame(() => {
-      feedListRef.current?.scrollToIndex({
-        index: pendingScrollIndex,
+      feedListRef.current?.scrollToOffset({
+        offset: index * feedHeight,
         animated: true,
       });
       setPendingScrollIndex(null);
     });
-  }, [feedItems.length, pendingScrollIndex]);
+  }, [feedHeight, feedItems.length, pendingScrollIndex]);
 
   useEffect(() => {
     const visibleItem = feedItems[currentCardIndex];
@@ -1098,18 +1109,24 @@ export default function SwipeScreen() {
     logFeedEvent,
   ]);
 
-  // The paging list can land on card 0 after its viewport is hidden (another
-  // tab, a 0-height layout pass). Put the user back on the card they left.
+  // Restore the card the user was on only after this tab was actually left.
+  // Re-running on feedHeight (a load-more layout pass) used to pin them back
+  // on the last old card instead of the first new one.
   useFocusEffect(
     useCallback(() => {
-      const index = feedViewRef.current.index;
-      if (index <= 0 || feedHeight <= 0) return;
-      if (index >= feedItemsRef.current.length) return;
-      const frame = requestAnimationFrame(() => {
-        feedListRef.current?.scrollToIndex({ index, animated: false });
-      });
-      return () => cancelAnimationFrame(frame);
-    }, [feedHeight]),
+      if (restoreIndexOnFocusRef.current) {
+        restoreIndexOnFocusRef.current = false;
+        const index = feedViewRef.current.index;
+        if (index > 0 && index < feedItemsRef.current.length) {
+          requestAnimationFrame(() => {
+            feedListRef.current?.scrollToIndex({ index, animated: false });
+          });
+        }
+      }
+      return () => {
+        restoreIndexOnFocusRef.current = true;
+      };
+    }, []),
   );
 
   useFocusEffect(
